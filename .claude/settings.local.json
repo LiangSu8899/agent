@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python tests/phase1_verify.py)"
+      "Bash(python tests/phase1_verify.py)",
+      "Bash(python tests/phase2_verify.py)"
     ]
   }
 }
