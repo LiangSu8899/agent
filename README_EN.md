@@ -1,201 +1,165 @@
-# Agent Debug OS
+# Agent Debug OS (Agent OS V1.0)
 
 <p align="center">
-  <a href="README.md">中文</a> | <a href="README_EN.md">English</a>
+  <a href="README_EN.md">English</a> | <a href="README.md">中文</a>
 </p>
 
-> A Debug-First Agent Runtime for Real-World Engineering Tasks
+> **A Debug-First Agent Runtime, and more importantly, an "Engineering-Grade Agent OS Prototype".**  
+> A Engineering-Grade Agent OS Prototype for Real-World Debugging.
 
 ---
 
-## 📌 Project Overview
+## 📌 System Architecture
 
-**Agent Debug OS** is a **debug-first agent runtime** designed for real engineering workflows, not chat-based demos.
+Agent Debug OS is not a linear LLM Q&A system, but a **closed-loop control system based on a State Machine**.
 
-It focuses on:
-
-- Long-running tasks (Docker builds, CI pipelines, compilation)
-- Interruptible and resumable execution
-- Automatic error detection and recovery attempts
-- Persistent session state and failure memory
-- Flexible usage of local or API-based LLMs
-
-Think of it as an **Operating System for Debugging**, not a chatbot.
+```mermaid
+graph TD
+    User[👨‍💻 User] -->|CLI Commands| Main[Entrypoint (main.py)]
+    Main -->|Init| Orch[Orchestrator]
+    
+    subgraph "Agent OS Runtime"
+        Orch -->|Manage| Session[Session (PTY/Process)]
+        Orch -->|Manage| Agent[Debug Agent]
+        
+        Session <-->|Stdin/Stdout| Terminal[💻 Real Terminal]
+        
+        Agent -->|Observe| Observer[Output Observer]
+        Observer -->|Parse Logs| Terminal
+        
+        Agent -->|Think| Brain[Model Manager]
+        Brain -->|Load/Unload| LLM[Local/Cloud Models]
+        
+        Agent -->|Recall| Memory[History Memory (SQLite)]
+        
+        Agent -->|Act| Tools[Toolbox]
+    end
+    
+    subgraph "Toolbox (The Hands)"
+        Tools --> Git[Git Handler]
+        Tools --> File[File Editor]
+        Tools --> Docker[Docker Tool]
+        Tools --> Browser[Browser Tool]
+    end
+    
+    Git -->|Safety Checkpoint| FileSystem
+    File -->|Modify| FileSystem
+```
 
 ---
 
-## 🧱 Core Design Philosophy
+## 🧱 Core Modules
 
-### 1. Session First
-
-- Every task runs inside a **Session**
-- Sessions have persistent state stored in SQLite
-- Lifecycle:
-
-```
-Created → Running → Paused → Completed / Failed
-```
-
-### 2. Real Terminal (PTY-based)
-
-- Uses a real **Pseudo-Terminal (PTY)** instead of subprocess wrappers
-- Supports attach / detach
-- Suitable for Docker, compilers, and interactive commands
-
-### 3. Debug Loop, Not Prompt Loop
-
-- Observe stdout / stderr
-- Detect and classify errors
-- Query failure history to avoid repeating the same fixes
-- Decide the next corrective action
-
-### 4. Safety by Design
-
-- All file changes are checkpointed with Git
-- Diff preview before applying changes
-- Every failure is traceable, reviewable, and reversible
-
----
-
-## 📁 Project Structure
-
-```
-agent/
-├── agent_core/          # Core runtime (Session / Terminal / Agent)
-│   ├── session.py
-│   ├── terminal.py
-│   ├── models.py
-│   ├── memory.py
-│   └── agent.py
-│
-├── agent_tools/         # Tools (File / Git / Docker / Browser)
-│   ├── file_editor.py
-│   ├── git_handler.py
-│   ├── docker_tool.py
-│   └── browser_tool.py
-│
-├── tests/               # Phase-based verification tests
-├── sandbox_test/        # File/code modification sandbox
-├── config.yaml          # Agent & model configuration
-├── sessions.db          # Session state database
-└── main.py              # Entry point
-```
+| Module | Responsibility | Key Features |
+| --- | --- | --- |
+| **Session** | Task runtime container | Async, PTY support, Pause/Resume, Log persistence |
+| **Orchestrator** | Commander-in-Chief | Orchestrates Agent & Session, handles user signals (Ctrl+C), lifecycle management |
+| **ModelManager** | Compute Scheduler | VRAM mutual exclusion (Auto Unload), Token counting, multi-backend (Local/API) |
+| **HistoryMemory** | Experience Base | Records `(Command, Error, Result)`, prevents Agent from infinite loops |
+| **GitHandler** | Safety Net | Mandatory Git commits before any file modification, `reset --hard` capability |
+| **Observer** | Perception | Real-time streaming log analysis, regex-based error matching |
 
 ---
 
 ## 🚀 Quick Start
 
-### Step 1: Clone the repository
+### 1. Environment Preparation
 
-```
-git clone https://github.com/LiangSu8899/agent.git
-cd agent
-```
+```bash
+# 1. Clone the repo
+git clone https://github.com/LiangSu8899/agent.git agent-os
+cd agent-os
 
-### Step 2: Install dependencies
+# 2. Create virtual environment (Python 3.10+ recommended)
+python -m venv venv
+source venv/bin/activate
 
-```
+# 3. Install dependencies
 pip install -r requirements.txt
+# Core dependencies: llama-cpp-python, duckduckgo-search, gitpython, docker, tiktoken, openai
 ```
 
-If `requirements.txt` is not available:
+### 2. Initial Configuration
 
-```
-pip install openai transformers tiktoken pyyaml
-```
+`config.yaml` is generated automatically on first run, but manual configuration is recommended.
 
-### Step 3: Configure the model
-
-Edit `config.yaml`.
-
-#### API-based model
-
-```
-model:
-  provider: openai
-  name: gpt-4o-mini
+```bash
+# View help and run once to generate config
+python main.py --help
+vim config.yaml
 ```
 
-Set environment variable:
+### 3. Start a Task
 
-```
-export OPENAI_API_KEY="your_api_key"
-```
+```bash
+# Scenario: Fixing a broken Docker build
+python main.py start "Fix the docker build error in current directory"
 
-#### Local model (llama.cpp / GGUF)
-
-```
-model:
-  provider: local
-  backend: llama.cpp
-  model_path: ./models/coder-7b.gguf
+# Scenario: Resume a previous session
+python main.py resume session_20231011_123456
 ```
 
 ---
 
-## ▶️ Running the Agent
+## 🧠 Model Configuration Guide
 
-Start the agent runtime:
+The system implements an `LLMClient` abstraction, allowing **seamless switching between Cloud and Local models** via `config.yaml`.
 
+### 1. Configuration Structure (`config.yaml`)
+
+```yaml
+models:
+  # Planner: Responsible for thinking, decision making, and error detection.
+  planner:
+    type: "openai"  # or "local"
+    model_name: "deepseek-chat"
+    api_key: "sk-xxxxxxxx" 
+    api_base: "https://api.deepseek.com/v1" # OpenAI-compatible
+    temperature: 0.1
+
+  # Coder: Responsible for writing code and modifying files.
+  coder:
+    type: "local"
+    path: "/models/deepseek-coder-33b.gguf"
+    n_ctx: 16384
+    n_gpu_layers: -1 # Offload all to GPU (e.g., RTX 5090)
 ```
-python main.py
-```
 
-### Programmatic example
+### 2. How it Works
 
-```
-from agent_core.session import Session
-
-session = Session.create(
-    command="for i in {1..5}; do echo $i; sleep 1; done"
-)
-
-session.start_async()
-```
-
-Supported features:
-
-- attach / detach
-- pause / resume
-- persistent logs
+* **Local Mode**: `ModelManager` uses `llama-cpp-python` to load GGUF into VRAM. It automatically `unloads` the previous model when switching roles to free up VRAM.
+* **OpenAI Mode**: Instantiates `OpenAICompatibleClient` for direct HTTP requests. Zero VRAM usage, ideal for offloading the Planner to the cloud.
 
 ---
 
-## 🧪 Testing
+## 🛠️ Engineering Optimization Todo List (V2.0 Roadmap)
 
-Run phase-based verification tests:
+### 🔒 1. Safety Guardrails - **High Priority**
+- [ ] **Implement `SafetyPolicy` Class**:
+  - **Blacklisted Paths**: Prevent modification of `/etc`, `/usr`, `.git`, `config.yaml`.
+  - **Dangerous Command Interception**: Block `rm -rf /`, `mkfs`, `dd`, etc.
+  - **Rate Limiting**: Limit the number of file modifications per step.
+- [ ] **Sandboxing**: Run the Agent inside a Docker container, mounting the host code as a volume.
 
-```
-python tests/phase1_verify.py
-python tests/phase2_verify.py
-```
+### 🛑 2. Human-in-the-Loop - **Medium Priority**
+- [ ] **Introduce `WAITING_APPROVAL` State**: Pause and show Diffs before applying file changes.
+- [ ] **Emergency Stop**: `Ctrl+D` triggers an immediate stop (kill process + Git Reset).
 
-| Phase   | Capability                          |
-|--------|--------------------------------------|
-| Phase 1 | Session & PTY runtime                |
-| Phase 2 | Local model management               |
-| Phase 3 | Debug loop & failure memory          |
-| Phase 4 | Safe file modification & rollback    |
-| Phase 5 | Docker & browser tools               |
+### 🧠 3. Context Optimization
+- [ ] **Sliding Window Context**: Implement `LogSummarizer` to compress long log outputs.
+- [ ] **Cross-Session Memory (RAG)**: Establish a global `knowledge.db` to reuse debugging experiences across projects.
 
----
-
-## 🧠 Use Cases
-
-- Docker build and CI debugging
-- Dependency and environment issue fixing
-- Local LLM–assisted engineering workflows
-- Agent system research and experimentation
+### ☁️ 4. Hybrid Compute
+- [ ] **Dynamic Routing**: Use local models for simple tasks; cloud models for complex reasoning.
+- [ ] **Cost Monitoring**: Track token usage and API costs.
 
 ---
 
-## ⚠️ Project Status
+## 🔭 Future Evolution
 
-- Active development
-- Focused on architecture validation and engineering correctness
-- API stability is not guaranteed yet
-
-Issues and pull requests are welcome.
+1. **MCP (Model Context Protocol) Integration**: Allow the Agent to use community tools (PostgreSQL, Slack, etc.).
+2. **Skill Library**: Persist successful operation sequences as reusable "Skills".
+3. **RL (Reinforcement Learning) Self-Evolution**: Collect DPO datasets to fine-tune project-specific models.
 
 ---
 
@@ -205,6 +169,4 @@ MIT License
 
 ---
 
-If you are tired of agents that can talk but cannot debug —
-
-**this project is built for you.**
+> **Design Goal: Make the Agent a reliable engineer, not a talkative chatbot.**

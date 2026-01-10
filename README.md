@@ -1,205 +1,165 @@
-# Agent Debug OS
+# Agent Debug OS (Agent OS V1.0)
 
-> **一个面向真实工程调试场景的 Agent Runtime，而不是聊天机器人**  
-> A Debug‑First Agent Runtime for Real‑World Engineering Tasks
+<p align="center">
+  <a href="README_EN.md">English</a> | <a href="README.md">中文</a>
+</p>
 
----
-
-## 📌 项目简介 | Project Overview
-
-**Agent Debug OS** 是一个以「调试优先（Debug‑First）」为核心设计理念的 Agent 框架，专门用于：
-
-- 长时间运行任务（Docker build / CI / 编译）
-- 可中断 / 可恢复的会话执行
-- 自动错误识别与修复尝试
-- 严格的状态管理与失败记忆
-- 本地 / API 大模型的灵活切换
-
-它并不是一个传统的“对话型 Agent”，而是更接近一个：
-
-> 🧠 **为工程师服务的调试操作系统（Debug Operating System）**
+> **一个面向真实工程调试场景的 Agent Runtime，更是一个“工程化的 Agent OS 雏形”。**  
+> A Engineering-Grade Agent OS Prototype for Real-World Debugging.
 
 ---
 
-**Agent Debug OS** is a *debug‑first* agent runtime designed for **real engineering workflows**, not chat demos.
+## 📌 系统架构 (System Architecture)
 
-It focuses on:
+Agent Debug OS 不是线性的 LLM 问答，而是一个**基于状态机（State Machine）的闭环控制系统**。
 
-- Long‑running tasks (Docker builds, CI, compilation)
-- Interruptible & resumable execution
-- Automatic error detection and recovery
-- Persistent session & failure memory
-- Flexible local / API‑based LLM usage
-
-> Think of it as an **Operating System for Debugging**, not a chatbot.
-
----
-
-## 🧱 核心设计理念 | Core Design Philosophy
-
-### 1️⃣ Session First（会话优先）
-- 每个任务都是一个 **Session**
-- Session 拥有独立状态与持久化存储（SQLite）
-- 支持：`Created → Running → Paused → Completed / Failed`
-
-### 2️⃣ Real Terminal, Not subprocess
-- 基于 **PTY (Pseudo‑Terminal)**
-- 支持真实 Shell 行为（attach / detach）
-- 适合 Docker、编译器、交互式命令
-
-### 3️⃣ Debug Loop, Not Prompt Loop
-- 观察输出（stdout/stderr）
-- 识别错误类型
-- 查询历史失败，避免重复修复
-- 决策下一步操作
-
-### 4️⃣ Safety by Design
-- 所有代码修改都有 Git 快照
-- 支持 diff 预览与回滚
-- Agent 的失败是**可审计、可恢复的**
-
----
-
-## 📁 项目结构 | Project Structure
-
-```text
-agent/
-├── agent_core/          # 核心运行时（Session / Terminal / Agent）
-│   ├── session.py
-│   ├── terminal.py
-│   ├── models.py
-│   ├── memory.py
-│   └── agent.py
-│
-├── agent_tools/         # 工具层（文件 / Git / Docker / Browser）
-│   ├── file_editor.py
-│   ├── git_handler.py
-│   ├── docker_tool.py
-│   └── browser_tool.py
-│
-├── tests/               # 分阶段验收测试
-│   ├── phase1_verify.py
-│   ├── phase2_verify.py
-│   └── ...
-│
-├── sandbox_test/        # 文件/代码修改测试沙盒
-├── config.yaml          # Agent & 模型配置
-├── sessions.db          # Session 状态数据库
-└── main.py              # 启动入口
+```mermaid
+graph TD
+    User[👨‍💻 User] -->|CLI Commands| Main[Entrypoint (main.py)]
+    Main -->|Init| Orch[Orchestrator]
+    
+    subgraph "Agent OS Runtime"
+        Orch -->|Manage| Session[Session (PTY/Process)]
+        Orch -->|Manage| Agent[Debug Agent]
+        
+        Session <-->|Stdin/Stdout| Terminal[💻 Real Terminal]
+        
+        Agent -->|Observe| Observer[Output Observer]
+        Observer -->|Parse Logs| Terminal
+        
+        Agent -->|Think| Brain[Model Manager]
+        Brain -->|Load/Unload| LLM[Local/Cloud Models]
+        
+        Agent -->|Recall| Memory[History Memory (SQLite)]
+        
+        Agent -->|Act| Tools[Toolbox]
+    end
+    
+    subgraph "Toolbox (The Hands)"
+        Tools --> Git[Git Handler]
+        Tools --> File[File Editor]
+        Tools --> Docker[Docker Tool]
+        Tools --> Browser[Browser Tool]
+    end
+    
+    Git -->|Safety Checkpoint| FileSystem
+    File -->|Modify| FileSystem
 ```
 
 ---
 
-## 🚀 快速开始 | Quick Start
+## 🧱 核心模块说明
 
-### 1️⃣ 克隆项目
+| 模块 | 职责 | 关键特性 |
+| --- | --- | --- |
+| **Session** | 任务运行时容器 | 异步、支持 PTY (伪终端)、可暂停/恢复、日志持久化 |
+| **Orchestrator** | 总指挥 | 协调 Agent 与 Session，处理用户信号 (Ctrl+C)，管理生命周期 |
+| **ModelManager** | 算力调度 | 显存互斥管理 (自动 Unload)、Token 计数、多后端支持 (Local/API) |
+| **HistoryMemory** | 经验库 | 记录 `(Command, Error, Result)`，防止 Agent 陷入死循环 |
+| **GitHandler** | 安全网 | 任何文件修改前强制 Commit，提供 `reset --hard` 回滚能力 |
+| **Observer** | 感知器 | 实时流式分析终端输出，正则匹配错误类型 |
+
+---
+
+## 🚀 快速开始 (Quick Start)
+
+### 1. 环境准备
 
 ```bash
-git clone https://github.com/LiangSu8899/agent.git
-cd agent
-```
+# 1. 克隆项目
+git clone https://github.com/LiangSu8899/agent.git agent-os
+cd agent-os
 
-### 2️⃣ 安装依赖
+# 2. 创建虚拟环境 (推荐 Python 3.10+)
+python -m venv venv
+source venv/bin/activate
 
-```bash
+# 3. 安装依赖
 pip install -r requirements.txt
+# 核心依赖：llama-cpp-python, duckduckgo-search, gitpython, docker, tiktoken, openai
 ```
 
-> 若暂无 `requirements.txt`，请至少安装：
+### 2. 初始化配置
+
+首次运行会自动生成 `config.yaml`，建议手动配置模型路径。
+
 ```bash
-pip install openai transformers tiktoken pyyaml
+# 查看帮助并运行一次生成配置
+python main.py --help
+vim config.yaml
 ```
 
-### 3️⃣ 配置模型 | Configure Model
+### 3. 启动任务
 
-编辑 `config.yaml`：
+```bash
+# 场景：你有一个 docker build 失败的项目
+python main.py start "修复当前目录中的 docker build 错误"
+
+# 场景：恢复之前的会话
+python main.py resume session_20231011_123456
+```
+
+---
+
+## 🧠 模型配置与更换指南
+
+系统实现了 `LLMClient` 抽象，**无缝切换云端/本地模型**只需修改 `config.yaml`。
+
+### 1. 配置文件结构 (`config.yaml`)
 
 ```yaml
-model:
-  provider: openai        # openai / local
-  name: gpt-4o-mini
+models:
+  # 规划模型 (Planner)：负责思考、决策、查错。推荐高智商模型。
+  planner:
+    type: "openai"  # 或 "local"
+    model_name: "deepseek-chat"
+    api_key: "sk-xxxxxxxx" 
+    api_base: "https://api.deepseek.com/v1" # 兼容 OpenAI 格式
+    temperature: 0.1
+
+  # 编码模型 (Coder)：负责写代码、改文件。推荐代码能力强的模型。
+  coder:
+    type: "local"
+    path: "/models/deepseek-coder-33b.gguf"
+    n_ctx: 16384
+    n_gpu_layers: -1 # 针对高性能 GPU (如 5090) 全部卸载
 ```
 
-或使用本地模型：
+### 2. 运作原理
 
-```yaml
-model:
-  provider: local
-  backend: llama.cpp
-  model_path: ./models/coder-7b.gguf
-```
-
-并设置环境变量（如使用 API）：
-
-```bash
-export OPENAI_API_KEY="your_api_key"
-```
+* **Local 模式**: `ModelManager` 调用 `llama-cpp-python` 加载 GGUF 到显存。如果切换角色，会自动 `unload` 前一个模型释放显存。
+* **OpenAI 模式**: 实例化 `OpenAICompatibleClient`，直接发 HTTP 请求。显存占用为 0，适合将 Planner 部署在云端。
 
 ---
 
-## ▶️ 运行示例 | Run Example
+## 🛠️ 严谨工程化优化 Todo List (V2.0 Roadmap)
 
-### 启动 Agent
+### 🔒 1. 安全边界 (Safety Guardrails) - **高优先级**
+- [ ] **实现 `SafetyPolicy` 类**：
+  - **黑名单路径**: 禁止修改 `/etc`, `/usr`, `.git`, `config.yaml`。
+  - **高危命令拦截**: 拦截 `rm -rf /`, `mkfs`, `dd` 等毁灭性命令。
+  - **修改限流**: 单次 Step 最多修改 3 个文件，超过需人工审批。
+- [ ] **沙箱化 (Sandbox)**: 让 Agent 只能在 Docker 容器内运行，挂载宿主机代码目录为 Volume。
 
-```bash
-python main.py
-```
+### 🛑 2. 人类介入机制 (Human-in-the-Loop) - **中优先级**
+- [ ] **引入 `WAITING_APPROVAL` 状态**: 当 `FileEditor` 准备修改文件时，展示 Diff 并等待确认。
+- [ ] **紧急制动**: `Ctrl+D` 触发 `Emergency Stop`（杀进程 + Git Reset）。
 
-### 启动一个调试 Session（示例）
+### 🧠 3. 记忆与上下文优化 (Context Optimization)
+- [ ] **滑动窗口上下文**: 实现 `LogSummarizer`，压缩超长日志。
+- [ ] **跨 Session 记忆 (RAG)**: 建立全局 `knowledge.db`，记录历史项目的补坑经验。
 
-```python
-from agent_core.session import Session
-
-session = Session.create(
-    command="for i in {1..5}; do echo $i; sleep 1; done"
-)
-session.start_async()
-```
-
-支持：
-- attach / detach
-- pause / resume
-- 日志持久化
+### ☁️ 4. 云端与本地混合调度 (Hybrid Compute)
+- [ ] **动态路由策略**: 简单任务 -> 本地模型；复杂推理 -> 云端模型。
+- [ ] **成本监控**: 记录 Token 消耗与费用。
 
 ---
 
-## 🧪 测试 | Testing
+## 🔭 未来演进路线
 
-项目采用 **分 Phase 验收测试**：
-
-```bash
-python tests/phase1_verify.py
-python tests/phase2_verify.py
-```
-
-每个 Phase 都验证一个关键能力：
-
-| Phase | 能力 |
-|------|------|
-| Phase 1 | Session + PTY 长任务 |
-| Phase 2 | 本地模型管理 |
-| Phase 3 | 调试循环与失败记忆 |
-| Phase 4 | 文件修改与回滚 |
-| Phase 5 | Docker / Browser 工具 |
-
----
-
-## 🧠 适用场景 | Use Cases
-
-- Docker build / CI 调试
-- 复杂项目依赖错误修复
-- 本地大模型辅助工程调试
-- Agent 研究 / Debug Agent 原型
-
----
-
-## ⚠️ 当前状态 | Project Status
-
-- 🚧 **Active Development**
-- 当前以工程验证与架构稳定性为优先
-- 尚未承诺 API 稳定性
-
-欢迎 Issue / PR / 讨论。
+1. **MCP (Model Context Protocol) 集成**: 使 Agent 能直接使用现成的 Tool (PostgreSQL, Slack, etc.)。
+2. **Skill Library (技能库)**: 将成功的操作序列固化为可复用的 "Skill"。
+3. **RL (Reinforcement Learning) 自进化**: 收集 DPO 数据集，针对项目风格微调专属模型。
 
 ---
 
@@ -209,14 +169,5 @@ MIT License
 
 ---
 
-## 🙌 致谢 | Acknowledgements
-
-- 灵感来自真实工程调试流程
-- 设计目标：**让 Agent 像一个可靠的工程师，而不是话多的聊天机器人**
-
----
-
-如果你也是工程师，并且厌倦了“只会聊天不会干活”的 Agent ——
-
-**这个项目就是为你准备的。**
+> **设计目标：让 Agent 像一个可靠的工程师，而不是话多的聊天机器人。**
 
