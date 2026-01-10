@@ -133,6 +133,30 @@ models:
 
 ---
 
+## ✅ Implemented Features (V1.0 Kernel)
+
+### Core Runtime:
+- [x] **Async Session**: Asynchronous session management for long-running tasks.
+- [x] **PTY Terminal**: Real pseudo-terminal interaction (supports top, progress bars, Ctrl+C).
+- [x] **Signal Handling**: Graceful handling of pauses and resumes.
+
+### Brain & Memory:
+- [x] **Model Manager**: Local VRAM mutual exclusion (automatic Load/Unload of GGUF models).
+- [x] **History Memory**: SQLite-based error memory to prevent repeating mistakes.
+- [x] **Output Observer**: Streaming log analysis and error classification.
+
+### Tools & Safety:
+- [x] **Git Safety Net**: Mandatory auto-commits before code modification with one-click rollback.
+- [x] **File Editor**: Precise code modification based on Search & Replace.
+- [x] **Docker Tool**: Streaming build log monitoring and container operations.
+- [x] **Browser Tool**: Online search and summarization for error messages.
+
+### Interface:
+- [x] **CLI**: start, resume, logs command-line tools.
+- [x] **Config System**: Flexible configuration based on config.yaml.
+
+---
+
 ## 🛠️ Engineering Optimization Todo List (V2.0 Roadmap)
 
 ### 🔒 1. Safety Guardrails - **High Priority**
