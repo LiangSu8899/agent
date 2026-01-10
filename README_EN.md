@@ -1,4 +1,4 @@
-# DebugFlow (V1.0)
+# DebugFlow (V1.1)
 
 <p align="center">
   <a href="README_EN.md">English</a> | <a href="README.md">中文</a>
@@ -90,6 +90,53 @@ python main.py --help
 vim config.yaml
 ```
 
+## 🚀 Interactive REPL - *New in V1.1*
+
+Starting from V1.1, the Interactive REPL mode is highly recommended. It features command completion, command history, and a visual status panel.
+
+### Launching
+```bash
+# Start REPL by default
+python main.py
+
+# Or explicitly launch it
+python main.py repl
+```
+
+### Slash Commands
+Within the `[agent] >` prompt, you can input tasks directly or use these commands to manage the system:
+
+| Command | Description | Example |
+| --- | --- | --- |
+| `/model <name>` | Hot-switch models (supports auto API Key entry) | `/model gpt-4` or `/model deepseek-coder` |
+| `/cost` | View token usage and estimated cost for the current session | `/cost` |
+| `/clear` | Clear the current context memory | `/clear` |
+| `/status` | View current session status and VRAM usage | `/status` |
+| `/history` | View execution command history | `/history` |
+| `/config` | View current configuration (sanitized) | `/config` |
+| `/help` | Show the help menu | `/help` |
+| `/exit` | Exit the application | `/exit` |
+
+### Interaction Example
+```plaintext
+[agent] > /model gpt-4o
+✓ Switched to model: gpt-4o
+
+[agent] > Fix the docker build error in current directory
+⠋ Agent is thinking...
+  ➜ Executing: docker build .
+  ➜ Error detected: "COPY failed: file not found"
+  ➜ Thinking: I need to check if the file exists...
+  ➜ Executing: ls -la
+  ...
+✓ Task Completed.
+
+[agent] > /cost
+Total Tokens: 1,250 | Estimated Cost: $0.002
+```
+
+---
+
 ### 3. Start a Task
 
 ```bash
@@ -159,8 +206,8 @@ models:
 
 ## 🛠️ Engineering Optimization Todo List (V2.0 Roadmap)
 
-### 🔒 1. Safety Guardrails - **High Priority**
-- [ ] **Implement `SafetyPolicy` Class**:
+### 🔒 1. Safety Guardrails - **Implemented (V1.1)**
+- [x] **Implement `SafetyPolicy` Class**:
   - **Blacklisted Paths**: Prevent modification of `/etc`, `/usr`, `.git`, `config.yaml`.
   - **Dangerous Command Interception**: Block `rm -rf /`, `mkfs`, `dd`, etc.
   - **Rate Limiting**: Limit the number of file modifications per step.
@@ -191,6 +238,30 @@ models:
 ## 📜 License
 
 MIT License
+
+---
+
+## 📊 Comparison
+
+| Feature Dimension | Feature Point | DebugFlow (Agent OS) | Claude Code (Official) | OpenCode / Interpreter | Oh-My-OpenCode |
+| --- | --- | --- | --- | --- | --- |
+| **Core Positioning** | Primary Use Case | **Deep Engineering Debugging** | Gen. Code Assist & Q&A | Gen. Automation & Scripts | Geek-focused Automation |
+| **Compute Model** | Model Support | **Local (5090) + Cloud Hybrid** | Anthropic Cloud Only | Any (Local/Cloud) | Any (Local/Cloud) |
+| **Execution Env** | Terminal Interaction | **✅ (Core Strength)** | ✅ | ⚠️ (Partial subprocess) | ⚠️ |
+| | Session Persistence | **✅ (SQLite Storage)** | ❌ (Forget on exit) | ⚠️ (Runtime memory) | ⚠️ |
+| | Long-task Resume | **✅ (Pause/Resume)** | ❌ | ❌ | ❌ |
+| | Process-level Control | **✅ (Graceful Ctrl+C)** | ⚠️ | ❌ (Prone to hanging) | ⚠️ |
+| **Safety** | Git Auto-Snapshot | **✅ (Mandatory)** | ❌ | ❌ (Raw mode) | ❌ |
+| | Sandbox/Permissions | ⚠️ (Phase 7 Todo) | ⚠️ (Cloud only) | ❌ (Root access) | ❌ |
+| | Human-in-the-loop | ⚠️ (Todo) | ✅ (Every change) | ✅ (Optional) | ✅ |
+| **Smart Features** | Failure Memory | **✅ (SQLite-based)** | ❌ | ❌ | ❌ |
+| | Active Observer | **✅ (Stream analysis)** | ⚠️ | ❌ (LLM manual check) | ❌ |
+| | Web Search | **✅ (BrowserTool)** | ❌ (Knowledge cutoff) | ✅ | ✅ |
+| **Interactive Exp** | Interactive REPL | **✅ (Phase 8)** | ✅ (Highly polished) | ✅ | ✅ |
+| | Slash Commands | **✅ (/model, /cost)** | ✅ (/bug, /review) | ✅ (/save) | ✅ |
+| | UI Aesthetics | ⚠️ (Base on Rich) | **✅ (Highly polished)** | ⚠️ | ⚠️ |
+| **Ecosystem** | MCP Protocol | 🔧 (Arch support) | ✅ (Native) | ⚠️ (Experimental) | ⚠️ |
+| | Multi-model Support | **✅ (GGUF/API Switch)** | ❌ (Claude only) | ✅ | ✅ |
 
 ---
 

@@ -1,4 +1,4 @@
-# DebugFlow (V1.0)
+# DebugFlow (V1.1)
 
 <p align="center">
   <a href="README_EN.md">English</a> | <a href="README.md">中文</a>
@@ -90,6 +90,53 @@ python main.py --help
 vim config.yaml
 ```
 
+## 🚀 交互模式 (Interactive REPL) - *New in V1.1*
+
+从 V1.1 版本开始，推荐使用交互式 REPL 模式。它提供了命令补全、历史记录和可视化状态面板。
+
+### 启动
+```bash
+# 默认启动 REPL
+python main.py
+
+# 或者显式启动
+python main.py repl
+```
+
+### Slash Commands (指令)
+在 `[agent] >` 提示符下，你可以直接输入任务描述，也可以使用以下指令管理系统：
+
+| 指令 | 说明 | 示例 |
+| --- | --- | --- |
+| `/model <name>` | 动态切换模型 (支持 API Key 自动录入) | `/model gpt-4` 或 `/model deepseek-coder` |
+| `/cost` | 查看当前会话 Token 消耗与预估费用 | `/cost` |
+| `/clear` | 清空当前上下文记忆 (Memory) | `/clear` |
+| `/status` | 查看当前 Session 状态与显存占用 | `/status` |
+| `/history` | 查看执行过的命令历史 | `/history` |
+| `/config` | 查看当前生效配置 (已脱敏) | `/config` |
+| `/help` | 显示帮助菜单 | `/help` |
+| `/exit` | 退出程序 | `/exit` |
+
+### 交互示例
+```plaintext
+[agent] > /model glm-4
+✓ Switched to model: glm-4
+
+[agent] > Fix the docker build error in current directory
+⠋ Agent is thinking...
+  ➜ Executing: docker build .
+  ➜ Error detected: "COPY failed: file not found"
+  ➜ Thinking: I need to check if the file exists...
+  ➜ Executing: ls -la
+  ...
+✓ Task Completed.
+
+[agent] > /cost
+Total Tokens: 1,250 | Estimated Cost: $0.002
+```
+
+---
+
 ### 3. 启动任务
 
 ```bash
@@ -159,8 +206,8 @@ models:
 
 ## 🛠️ 严谨工程化优化 Todo List (V2.0 Roadmap)
 
-### 🔒 1. 安全边界 (Safety Guardrails) - **高优先级**
-- [ ] **实现 `SafetyPolicy` 类**：
+### 🔒 1. 安全边界 (Safety Guardrails) - **已实现 (V1.1)**
+- [x] **实现 `SafetyPolicy` 类**：
   - **黑名单路径**: 禁止修改 `/etc`, `/usr`, `.git`, `config.yaml`。
   - **高危命令拦截**: 拦截 `rm -rf /`, `mkfs`, `dd` 等毁灭性命令。
   - **修改限流**: 单次 Step 最多修改 3 个文件，超过需人工审批。
@@ -191,6 +238,30 @@ models:
 ## 📜 License
 
 MIT License
+
+---
+
+## 📊 功能对比 (Comparison)
+
+| 功能维度 | 功能点 | DebugFlow (Agent OS) | Claude Code (官方) | OpenCode / Interpreter | Oh-My-OpenCode |
+| --- | --- | --- | --- | --- | --- |
+| **核心定位** | 主要用途 | **深度工程调试 & 修复** | 通用代码辅助 & 问答 | 通用自动化 & 脚本执行 | 极客定制版自动化 |
+| **算力模式** | 模型支持 | **本地(5090) + 云端混合** | 仅限 Anthropic 云端 | 任意 (本地/云端) | 任意 (本地/云端) |
+| **执行环境** | 终端交互 (PTY) | **✅ (核心强项)** | ✅ | ⚠️ (部分 subprocess) | ⚠️ |
+| | 状态保持 (Session) | **✅ (SQLite持久化)** | ❌ (退出即忘) | ⚠️ (运行时内存) | ⚠️ |
+| | 长任务中断恢复 | **✅ (Pause/Resume)** | ❌ | ❌ | ❌ |
+| | 进程级控制 | **✅ (Ctrl+C 优雅暂停)** | ⚠️ | ❌ (容易卡死) | ⚠️ |
+| **安全性** | Git 自动快照 | **✅ (强制 Checkpoint)** | ❌ | ❌ (裸奔) | ❌ |
+| | 沙箱/权限控制 | ⚠️ (Phase 7 Todo) | ⚠️ (云端环境) | ❌ (Root 裸奔) | ❌ |
+| | 修改确认 | ⚠️ (Todo) | ✅ (每次确认) | ✅ (可选) | ✅ |
+| **智能特性** | 错误记忆 (Memory) | **✅ (防重复犯错)** | ❌ | ❌ | ❌ |
+| | 主动查错 (Observer) | **✅ (流式分析)** | ⚠️ | ❌ (靠 LLM 自己看) | ❌ |
+| | 联网搜索 | **✅ (BrowserTool)** | ❌ (知识截止) | ✅ | ✅ |
+| **交互体验** | 交互式 REPL | **✅ (Phase 8)** | ✅ (非常丝滑) | ✅ | ✅ |
+| | Slash Commands | **✅ (/model, /cost)** | ✅ (/bug, /review) | ✅ (/save) | ✅ |
+| | UI 美观度 | ⚠️ (基于 Rich) | **✅ (极致打磨)** | ⚠️ | ⚠️ |
+| **生态** | MCP 协议支持 | 🔧 (架构支持, 待加) | ✅ (原生支持) | ⚠️ (试验中) | ⚠️ |
+| | 多模型切换 | **✅ (GGUF/API 秒切)** | ❌ (仅 Claude) | ✅ | ✅ |
 
 ---
 
