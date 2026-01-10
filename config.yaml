@@ -1,56 +1,6 @@
-# Debug Agent Configuration
-# This file configures the agent's behavior and resources
-
-# Model Configuration
-# Define the models available for the agent to use
+api_keys:
+  deepseek-v3: sk-test-123
 models:
-  # Planner model - smaller, faster model for planning and reasoning
-  planner:
-    type: mock  # Options: mock, llama-cpp, openai-compatible
-    vram: 7     # VRAM usage in GB (for GPU scheduling)
-    # For llama-cpp:
-    # model_path: /path/to/model.gguf
-    # n_ctx: 4096
-    # n_gpu_layers: -1
-
-  # Coder model - larger model for code generation
-  coder:
-    type: mock
-    vram: 18
-    # For openai-compatible:
-    # base_url: http://localhost:8000
-    # model_name: codellama-34b
-
-# Workspace Configuration
-workspace_root: "."  # Root directory for file operations
-
-# Session Configuration
-session:
-  db_path: sessions.db      # SQLite database for session state
-  log_dir: agent_core/logs  # Directory for session logs
-  max_steps: 50             # Maximum steps per debug session
-
-# Git Configuration
-git:
-  auto_checkpoint: true     # Create checkpoints before file modifications
-  checkpoint_prefix: "[AGENT]"
-
-# Browser Configuration
-browser:
-  timeout: 10               # Request timeout in seconds
-  max_results: 5            # Maximum search results
-
-# Docker Configuration
-docker:
-  use_sdk: true             # Use Docker SDK (falls back to subprocess if unavailable)
-  build_timeout: 600        # Build timeout in seconds
-
-# Memory Configuration
-memory:
-  max_history: 100          # Maximum history entries to keep
-  context_entries: 5        # Number of entries to include in prompts
-
-# Logging
-logging:
-  level: INFO               # DEBUG, INFO, WARNING, ERROR
-  file: agent.log           # Log file path (optional)
+  deepseek-v3:
+    api_key: sk-test-123
+    type: openai-compatible

@@ -3,6 +3,7 @@
 Debug Agent CLI - Main entry point for the debug agent.
 
 Commands:
+    repl                      - Start interactive REPL (default)
     start "task description"  - Start a new debug session
     resume <session_id>       - Resume an existing session
     list                      - List all sessions
@@ -21,6 +22,7 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from agent_core.orchestrator import AgentOrchestrator
+from agent_core.interface.repl import AgentREPL
 
 
 DEFAULT_CONFIG_PATH = "config.yaml"
@@ -213,6 +215,19 @@ def cmd_status(args, config: dict):
     print(f"Session {session_id}: {status}")
 
 
+def cmd_repl(args, config: dict):
+    """Start interactive REPL."""
+    orchestrator = create_orchestrator(config)
+    config_path = args.config if hasattr(args, 'config') else DEFAULT_CONFIG_PATH
+
+    repl = AgentREPL(
+        orchestrator=orchestrator,
+        config=config,
+        config_path=config_path
+    )
+    repl.run()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Debug Agent CLI - AI-powered debugging assistant",
@@ -227,6 +242,9 @@ def main():
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # repl command (default)
+    subparsers.add_parser("repl", help="Start interactive REPL (default)")
 
     # start command
     start_parser = subparsers.add_parser("start", help="Start a new debug session")
@@ -258,15 +276,16 @@ def main():
 
     args = parser.parse_args()
 
-    if not args.command:
-        parser.print_help()
-        sys.exit(1)
-
     # Load config
     config = load_config(args.config)
 
+    # Default to repl if no command specified
+    if not args.command:
+        args.command = "repl"
+
     # Dispatch to command handler
     commands = {
+        "repl": cmd_repl,
         "start": cmd_start,
         "resume": cmd_resume,
         "list": cmd_list,
