@@ -8,7 +8,8 @@
       "Bash(python tests/phase5_verify.py)",
       "Bash(python tests/phase6_verify.py)",
       "Bash(python main.py --help)",
-      "Bash(python main.py list)"
+      "Bash(python main.py list)",
+      "Bash(python tests/phase7_safety.py)"
     ]
   }
 }

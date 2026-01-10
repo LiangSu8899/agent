@@ -13,6 +13,7 @@ from .models.manager import ModelManager
 from .memory.history import HistoryMemory
 from .analysis.observer import OutputObserver
 from .analysis.classifier import ErrorClassifier
+from .security import SafetyPolicy, SecurityViolationError
 
 
 class AgentState(Enum):
@@ -37,6 +38,7 @@ class StepResult:
     status: str
     error_category: Optional[str] = None
     was_duplicate: bool = False
+    security_error: Optional[str] = None
 
 
 class DebugAgent:
@@ -52,6 +54,7 @@ class DebugAgent:
         memory: Optional[HistoryMemory] = None,
         observer: Optional[OutputObserver] = None,
         classifier: Optional[ErrorClassifier] = None,
+        safety_policy: Optional[SafetyPolicy] = None,
         max_steps: int = 10,
         planner_model: str = "planner"
     ):
@@ -64,6 +67,7 @@ class DebugAgent:
             memory: HistoryMemory for tracking actions
             observer: OutputObserver for parsing logs
             classifier: ErrorClassifier for categorizing errors
+            safety_policy: SafetyPolicy for security validation
             max_steps: Maximum steps before stopping
             planner_model: Name of the planner model to use
         """
@@ -72,6 +76,7 @@ class DebugAgent:
         self.memory = memory or HistoryMemory()
         self.observer = observer or OutputObserver()
         self.classifier = classifier or ErrorClassifier()
+        self.safety_policy = safety_policy or SafetyPolicy()
 
         self.max_steps = max_steps
         self.planner_model = planner_model
@@ -222,6 +227,30 @@ If the task is complete, respond with:
                 was_duplicate=True
             )
 
+        # SECURITY CHECK: Validate command before execution
+        try:
+            self.safety_policy.validate_command(command)
+        except SecurityViolationError as e:
+            # Record the security violation but don't execute
+            security_msg = f"SECURITY BLOCKED: {str(e)}"
+            self.memory.add_entry(
+                step=self.current_step,
+                command=command,
+                output=security_msg,
+                exit_code=-2,
+                status="SECURITY_BLOCKED",
+                reasoning=f"Security violation: {reasoning}"
+            )
+            return StepResult(
+                step_number=self.current_step,
+                thought=thought,
+                command=command,
+                output=security_msg,
+                exit_code=-2,
+                status="SECURITY_BLOCKED",
+                security_error=str(e)
+            )
+
         # ACT: Execute the command
         self.state = AgentState.ACTING
         self.session_id = self.session_manager.create_session(command=command)
@@ -302,7 +331,7 @@ If the task is complete, respond with:
 
             # If we've had too many failures, stop
             consecutive_failures = sum(
-                1 for r in results[-3:] if r.status in ("FAILED", "SKIPPED")
+                1 for r in results[-3:] if r.status in ("FAILED", "SKIPPED", "SECURITY_BLOCKED")
             )
             if consecutive_failures >= 3:
                 self.state = AgentState.FAILED
