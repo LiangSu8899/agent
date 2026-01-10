@@ -1,17 +1,17 @@
-# Agent Debug OS (Agent OS V1.0)
+# DebugFlow (V1.0)
 
 <p align="center">
   <a href="README_EN.md">English</a> | <a href="README.md">中文</a>
 </p>
 
-> **A Debug-First Agent Runtime, and more importantly, an "Engineering-Grade Agent OS Prototype".**  
-> A Engineering-Grade Agent OS Prototype for Real-World Debugging.
+> **A Debug-First Agent Runtime, and more importantly, an "Engineering-Grade DebugFlow Prototype".**  
+> A Engineering-Grade DebugFlow Prototype for Real-World Debugging.
 
 ---
 
 ## 📌 System Architecture
 
-Agent Debug OS is not a linear LLM Q&A system, but a **closed-loop control system based on a State Machine**.
+DebugFlow is not a linear LLM Q&A system, but a **closed-loop control system based on a State Machine**.
 
 ```mermaid
 graph TD
@@ -19,7 +19,7 @@ graph TD
 
     Main -->|Init| Orch[Orchestrator]
 
-    subgraph Agent_OS_Runtime
+    subgraph DebugFlow_Runtime
         Orch -->|Manage| Session[Session]
         Orch -->|Manage| Agent[DebugAgent]
 

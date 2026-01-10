@@ -1,17 +1,17 @@
-# Agent Debug OS (Agent OS V1.0)
+# DebugFlow (V1.0)
 
 <p align="center">
   <a href="README_EN.md">English</a> | <a href="README.md">中文</a>
 </p>
 
-> **一个面向真实工程调试场景的 Agent Runtime，更是一个“工程化的 Agent OS 雏形”。**  
-> A Engineering-Grade Agent OS Prototype for Real-World Debugging.
+> **一个面向真实工程调试场景的 Agent Runtime，更是一个“工程化的 DebugFlow 雏形”。**  
+> A Engineering-Grade DebugFlow Prototype for Real-World Debugging.
 
 ---
 
 ## 📌 系统架构 (System Architecture)
 
-Agent Debug OS 不是线性的 LLM 问答，而是一个**基于状态机（State Machine）的闭环控制系统**。
+DebugFlow 不是线性的 LLM 问答，而是一个**基于状态机（State Machine）的闭环控制系统**。
 
 ```mermaid
 graph TD
@@ -19,7 +19,7 @@ graph TD
 
     Main -->|Init| Orch[Orchestrator]
 
-    subgraph Agent_OS_Runtime
+    subgraph DebugFlow_Runtime
         Orch -->|Manage| Session[Session]
         Orch -->|Manage| Agent[DebugAgent]
 
