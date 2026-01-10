@@ -15,34 +15,35 @@ Agent Debug OS is not a linear LLM Q&A system, but a **closed-loop control syste
 
 ```mermaid
 graph TD
-    User[👨‍💻 User] -->|CLI Commands| Main[Entrypoint (main.py)]
+    User[User] -->|CLI Commands| Main[Main Entrypoint]
+
     Main -->|Init| Orch[Orchestrator]
-    
-    subgraph "Agent OS Runtime"
-        Orch -->|Manage| Session[Session (PTY/Process)]
-        Orch -->|Manage| Agent[Debug Agent]
-        
-        Session <-->|Stdin/Stdout| Terminal[💻 Real Terminal]
-        
-        Agent -->|Observe| Observer[Output Observer]
+
+    subgraph Agent_OS_Runtime
+        Orch -->|Manage| Session[Session]
+        Orch -->|Manage| Agent[DebugAgent]
+
+        Session <-->|Stdin Stdout| Terminal[RealTerminal]
+
+        Agent -->|Observe| Observer[OutputObserver]
         Observer -->|Parse Logs| Terminal
-        
-        Agent -->|Think| Brain[Model Manager]
-        Brain -->|Load/Unload| LLM[Local/Cloud Models]
-        
-        Agent -->|Recall| Memory[History Memory (SQLite)]
-        
+
+        Agent -->|Think| Brain[ModelManager]
+        Brain -->|Load Unload| LLM[LLMModels]
+
+        Agent -->|Recall| Memory[HistoryMemory]
+
         Agent -->|Act| Tools[Toolbox]
     end
-    
-    subgraph "Toolbox (The Hands)"
-        Tools --> Git[Git Handler]
-        Tools --> File[File Editor]
-        Tools --> Docker[Docker Tool]
-        Tools --> Browser[Browser Tool]
+
+    subgraph Toolbox
+        Tools --> Git[GitHandler]
+        Tools --> File[FileEditor]
+        Tools --> Docker[DockerTool]
+        Tools --> Browser[BrowserTool]
     end
-    
-    Git -->|Safety Checkpoint| FileSystem
+
+    Git -->|Checkpoint| FileSystem
     File -->|Modify| FileSystem
 ```
 
