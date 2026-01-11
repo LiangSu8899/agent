@@ -11,7 +11,9 @@
       "Bash(python main.py list)",
       "Bash(python tests/phase7_safety.py)",
       "Bash(python tests/phase8_repl.py)",
-      "Bash(python tests/phase9_ux.py)"
+      "Bash(python tests/phase9_ux.py)",
+      "Bash(python tests/phase10_project.py)",
+      "Bash(python -m pytest tests/phase10_project.py -v)"
     ]
   }
 }

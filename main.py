@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Debug Agent CLI - Main entry point for the debug agent.
+Agent OS - AI-powered debugging assistant.
 
 Commands:
     repl                      - Start interactive REPL (default)
+    init                      - Initialize a new project in current directory
     start "task description"  - Start a new debug session
     resume <session_id>       - Resume an existing session
     list                      - List all sessions
@@ -23,40 +24,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from agent_core.orchestrator import AgentOrchestrator
 from agent_core.interface.repl import AgentREPL
+from agent_core.project import ProjectManager
+from agent_core.config import ConfigManager
 
 
-DEFAULT_CONFIG_PATH = "config.yaml"
-DEFAULT_CONFIG = {
-    "models": {
-        "planner": {"type": "mock", "vram": 7},
-        "coder": {"type": "mock", "vram": 18}
-    },
-    "workspace_root": ".",
-    "session": {
-        "db_path": "sessions.db",
-        "log_dir": "agent_core/logs",
-        "max_steps": 50
-    }
-}
+def create_orchestrator(config: dict, project_manager: ProjectManager) -> AgentOrchestrator:
+    """Create an orchestrator from config and project manager."""
+    # Get project-specific paths
+    db_path = project_manager.get_session_db_path()
+    log_dir = project_manager.get_logs_dir()
 
-
-def load_config(config_path: str) -> dict:
-    """Load configuration from YAML file, creating default if missing."""
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f) or DEFAULT_CONFIG
-    else:
-        # Create default config
-        with open(config_path, 'w') as f:
-            yaml.dump(DEFAULT_CONFIG, f, default_flow_style=False)
-        print(f"Created default config at {config_path}")
-        return DEFAULT_CONFIG
-
-
-def create_orchestrator(config: dict) -> AgentOrchestrator:
-    """Create an orchestrator from config."""
-    session_config = config.get("session", {})
-    db_path = session_config.get("db_path", "sessions.db")
+    # Update config with project paths
+    config["session"] = config.get("session", {})
+    config["session"]["db_path"] = db_path
+    config["session"]["log_dir"] = log_dir
 
     return AgentOrchestrator(
         db_path=db_path,
@@ -65,16 +46,90 @@ def create_orchestrator(config: dict) -> AgentOrchestrator:
     )
 
 
-def cmd_start(args, config: dict):
+def resolve_project(args) -> tuple:
+    """
+    Resolve the project to use based on current directory and state.
+
+    Returns:
+        Tuple of (ProjectManager, ConfigManager, config_dict)
+    """
+    # Initialize managers
+    pm = ProjectManager()
+    cm = ConfigManager()
+
+    # Load global config
+    config = cm.load_global_config()
+
+    # Get current directory
+    current_dir = os.getcwd()
+
+    # Check startup resolution
+    resolution = pm.resolve_startup_project(current_dir)
+
+    if resolution["action"] == "load":
+        # Load existing project
+        pm.load_project(resolution["path"])
+        print(f"Loaded project: {pm.get_project_name()}")
+
+    elif resolution["action"] == "init":
+        # No project found, initialize in current directory
+        if not hasattr(args, 'no_init') or not args.no_init:
+            print(f"No project found. Initializing in: {current_dir}")
+            pm.init_project(current_dir)
+            print(f"Project initialized: {pm.get_project_name()}")
+
+    elif resolution["action"] == "ask":
+        # Ask user what to do
+        print(f"\nNo project found in current directory: {current_dir}")
+        print(f"Last project: {resolution['last']}")
+        print()
+        print("Options:")
+        print("  1) Initialize new project here")
+        print(f"  2) Open last project ({os.path.basename(resolution['last'])})")
+        print("  3) Exit")
+        print()
+
+        try:
+            choice = input("Choose [1/2/3]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            choice = "3"
+
+        if choice == "1":
+            pm.init_project(current_dir)
+            print(f"Project initialized: {pm.get_project_name()}")
+        elif choice == "2":
+            pm.load_project(resolution["last"])
+            print(f"Loaded project: {pm.get_project_name()}")
+        else:
+            print("Exiting.")
+            sys.exit(0)
+
+    return pm, cm, config
+
+
+def cmd_init(args, pm: ProjectManager, cm: ConfigManager, config: dict):
+    """Initialize a new project in current directory."""
+    current_dir = os.getcwd()
+
+    if pm.is_initialized(current_dir):
+        print(f"Project already initialized in: {current_dir}")
+        return
+
+    pm.init_project(current_dir)
+    print(f"Project initialized: {pm.get_project_name()}")
+    print(f"Data directory: {pm.get_session_db_path()}")
+
+
+def cmd_start(args, pm: ProjectManager, cm: ConfigManager, config: dict):
     """Start a new debug session."""
     task = args.task
     if not task:
         print("Error: Task description required")
         sys.exit(1)
 
-    orchestrator = create_orchestrator(config)
+    orchestrator = create_orchestrator(config, pm)
 
-    print(f"Starting task: {task}")
+    print(f"[{pm.get_project_name()}] Starting task: {task}")
     session_id = orchestrator.create_task(task)
     print(f"Session ID: {session_id}")
 
@@ -104,21 +159,21 @@ def cmd_start(args, config: dict):
         print(f"\nSession {session_id} paused.")
 
 
-def cmd_resume(args, config: dict):
+def cmd_resume(args, pm: ProjectManager, cm: ConfigManager, config: dict):
     """Resume an existing session."""
     session_id = args.session_id
     if not session_id:
         print("Error: Session ID required")
         sys.exit(1)
 
-    orchestrator = create_orchestrator(config)
+    orchestrator = create_orchestrator(config, pm)
 
     status = orchestrator.get_session_status(session_id)
     if status == "UNKNOWN":
         print(f"Error: Session {session_id} not found")
         sys.exit(1)
 
-    print(f"Resuming session {session_id} (status: {status})")
+    print(f"[{pm.get_project_name()}] Resuming session {session_id} (status: {status})")
 
     # Setup signal handler
     def signal_handler(sig, frame):
@@ -140,10 +195,13 @@ def cmd_resume(args, config: dict):
         print(f"\nSession {session_id} paused.")
 
 
-def cmd_list(args, config: dict):
+def cmd_list(args, pm: ProjectManager, cm: ConfigManager, config: dict):
     """List all sessions."""
-    orchestrator = create_orchestrator(config)
+    orchestrator = create_orchestrator(config, pm)
     sessions = orchestrator.list_tasks()
+
+    print(f"Project: {pm.get_project_name()}")
+    print()
 
     if not sessions:
         print("No sessions found.")
@@ -157,14 +215,14 @@ def cmd_list(args, config: dict):
         print(f"{session['id']:<12} {session['status']:<12} {cmd:<40} {session['created_at']}")
 
 
-def cmd_logs(args, config: dict):
+def cmd_logs(args, pm: ProjectManager, cm: ConfigManager, config: dict):
     """Show logs for a session."""
     session_id = args.session_id
     if not session_id:
         print("Error: Session ID required")
         sys.exit(1)
 
-    orchestrator = create_orchestrator(config)
+    orchestrator = create_orchestrator(config, pm)
     logs = orchestrator.get_session_logs(session_id)
 
     if not logs:
@@ -179,69 +237,77 @@ def cmd_logs(args, config: dict):
     print(logs)
 
 
-def cmd_pause(args, config: dict):
+def cmd_pause(args, pm: ProjectManager, cm: ConfigManager, config: dict):
     """Pause a running session."""
     session_id = args.session_id
     if not session_id:
         print("Error: Session ID required")
         sys.exit(1)
 
-    orchestrator = create_orchestrator(config)
+    orchestrator = create_orchestrator(config, pm)
     orchestrator.pause_task(session_id)
     print(f"Session {session_id} paused.")
 
 
-def cmd_stop(args, config: dict):
+def cmd_stop(args, pm: ProjectManager, cm: ConfigManager, config: dict):
     """Stop a session."""
     session_id = args.session_id
     if not session_id:
         print("Error: Session ID required")
         sys.exit(1)
 
-    orchestrator = create_orchestrator(config)
+    orchestrator = create_orchestrator(config, pm)
     orchestrator.stop_task(session_id)
     print(f"Session {session_id} stopped.")
 
 
-def cmd_status(args, config: dict):
+def cmd_status(args, pm: ProjectManager, cm: ConfigManager, config: dict):
     """Get status of a session."""
     session_id = args.session_id
     if not session_id:
         print("Error: Session ID required")
         sys.exit(1)
 
-    orchestrator = create_orchestrator(config)
+    orchestrator = create_orchestrator(config, pm)
     status = orchestrator.get_session_status(session_id)
     print(f"Session {session_id}: {status}")
 
 
-def cmd_repl(args, config: dict):
+def cmd_repl(args, pm: ProjectManager, cm: ConfigManager, config: dict):
     """Start interactive REPL."""
-    orchestrator = create_orchestrator(config)
-    config_path = args.config if hasattr(args, 'config') else DEFAULT_CONFIG_PATH
+    orchestrator = create_orchestrator(config, pm)
+
+    # Add project info to config for REPL display
+    config["project"] = {
+        "name": pm.get_project_name(),
+        "path": pm.get_current_project()
+    }
 
     repl = AgentREPL(
         orchestrator=orchestrator,
         config=config,
-        config_path=config_path
+        config_path=cm.get_global_config_path()
     )
     repl.run()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Debug Agent CLI - AI-powered debugging assistant",
+        description="Agent OS - AI-powered debugging assistant",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
 
     parser.add_argument(
-        "-c", "--config",
-        default=DEFAULT_CONFIG_PATH,
-        help=f"Path to config file (default: {DEFAULT_CONFIG_PATH})"
+        "--version",
+        action="version",
+        version="agent-os 0.1.0"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # init command
+    subparsers.add_parser("init", help="Initialize a new project in current directory")
 
     # repl command (default)
     subparsers.add_parser("repl", help="Start interactive REPL (default)")
@@ -276,8 +342,8 @@ def main():
 
     args = parser.parse_args()
 
-    # Load config
-    config = load_config(args.config)
+    # Resolve project and load config
+    pm, cm, config = resolve_project(args)
 
     # Default to repl if no command specified
     if not args.command:
@@ -285,6 +351,7 @@ def main():
 
     # Dispatch to command handler
     commands = {
+        "init": cmd_init,
         "repl": cmd_repl,
         "start": cmd_start,
         "resume": cmd_resume,
@@ -297,7 +364,7 @@ def main():
 
     handler = commands.get(args.command)
     if handler:
-        handler(args, config)
+        handler(args, pm, cm, config)
     else:
         parser.print_help()
         sys.exit(1)

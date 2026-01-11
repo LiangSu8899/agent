@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-os"
+version = "0.1.0"
+description = "AI-powered debugging assistant with hybrid model support"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Agent OS Team", email = "team@agent-os.dev"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Debuggers",
+]
+dependencies = [
+    "pyyaml>=6.0",
+    "rich>=13.0",
+    "prompt_toolkit>=3.0",
+    "requests>=2.28",
+    "beautifulsoup4>=4.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "isort>=5.0",
+    "mypy>=1.0",
+]
+llm = [
+    "tiktoken>=0.5",
+    "llama-cpp-python>=0.2",
+]
+docker = [
+    "docker>=6.0",
+]
+search = [
+    "duckduckgo-search>=3.0",
+]
+all = [
+    "agent-os[dev,llm,docker,search]",
+]
+
+[project.scripts]
+agent-os = "main:main"
+aos = "main:main"
+
+[project.urls]
+Homepage = "https://github.com/agent-os/agent-os"
+Documentation = "https://agent-os.dev/docs"
+Repository = "https://github.com/agent-os/agent-os"
+Issues = "https://github.com/agent-os/agent-os/issues"
+
+[tool.setuptools.packages.find]
+exclude = ["tests", "tests.*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py", "phase*_*.py"]
+addopts = "-v --tb=short"
