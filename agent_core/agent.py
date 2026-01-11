@@ -103,22 +103,54 @@ class DebugAgent:
             return self.model_manager.get_model(self.planner_model)
         raise RuntimeError("No planner available. Set model_manager or use set_planner()")
 
-    def _build_prompt(self, task: str, current_output: str = "") -> str:
+    def _build_prompt(self, task: str, current_output: str = "", is_initial: bool = False) -> str:
         """
         Build the prompt for the planner model.
 
         Args:
             task: The task description
             current_output: Current terminal output (if any)
+            is_initial: If True, this is the initial planning step (no output yet)
 
         Returns:
             Formatted prompt string
         """
         history_context = self.memory.get_context_for_prompt()
 
-        prompt = f"""You are a debug agent helping to fix issues.
+        if is_initial:
+            # Initial prompt: focus on understanding the goal and planning first step
+            prompt = f"""You are a debug agent helping to accomplish tasks.
 
-Task: {task}
+User Goal: {task}
+
+This is the INITIAL step. You need to:
+1. Understand what the user wants to achieve
+2. Plan the first shell command to start working on this goal
+
+{history_context}
+
+Based on the user's goal, decide the first action to take.
+If a command has failed before, DO NOT suggest it again.
+
+Respond in JSON format:
+{{
+    "thought": "Your reasoning about what to do first",
+    "command": "The shell command to execute",
+    "reasoning": "Why this command will help achieve the goal"
+}}
+
+If the task is already complete or impossible, respond with:
+{{
+    "thought": "Explanation",
+    "command": "DONE",
+    "reasoning": "Why the task is complete or cannot be done"
+}}
+"""
+        else:
+            # Follow-up prompt: analyze output and decide next step
+            prompt = f"""You are a debug agent helping to accomplish tasks.
+
+User Goal: {task}
 
 {history_context}
 
@@ -169,13 +201,14 @@ If the task is complete, respond with:
                 "reasoning": "Fallback due to parse error"
             }
 
-    def run_step(self, task: str, current_output: str = "") -> StepResult:
+    def run_step(self, task: str, current_output: str = "", is_initial: bool = False) -> StepResult:
         """
         Execute a single Think -> Act -> Observe step.
 
         Args:
             task: The task description
             current_output: Current terminal output
+            is_initial: If True, this is the initial planning step
 
         Returns:
             StepResult with the outcome of this step
@@ -185,7 +218,7 @@ If the task is complete, respond with:
         # THINK: Get planner's suggestion
         self.state = AgentState.THINKING
         planner = self._get_planner()
-        prompt = self._build_prompt(task, current_output)
+        prompt = self._build_prompt(task, current_output, is_initial=is_initial)
         response = planner.generate(prompt)
         parsed = self._parse_planner_response(response)
 
@@ -305,22 +338,33 @@ If the task is complete, respond with:
             error_category=error_category
         )
 
-    def run(self, task: str) -> List[StepResult]:
+    def run(self, task: str = None, initial_goal: str = None) -> List[StepResult]:
         """
         Run the full debug loop until completion or max steps.
 
+        The flow is: User Goal -> Planner -> Tool/Command -> Observer -> Loop
+
         Args:
-            task: The task description
+            task: The task description (deprecated, use initial_goal)
+            initial_goal: The natural language goal from the user
 
         Returns:
             List of StepResults from all steps
         """
+        # Support both 'task' and 'initial_goal' for backward compatibility
+        goal = initial_goal or task
+        if not goal:
+            raise ValueError("Either 'task' or 'initial_goal' must be provided")
+
         results = []
         current_output = ""
+        is_first_step = True
 
         while self.current_step < self.max_steps:
-            result = self.run_step(task, current_output)
+            # First step uses is_initial=True to trigger goal-focused planning
+            result = self.run_step(goal, current_output, is_initial=is_first_step)
             results.append(result)
+            is_first_step = False
 
             if result.status == "COMPLETED":
                 break

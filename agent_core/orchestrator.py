@@ -14,6 +14,8 @@ from .analysis.observer import OutputObserver
 from .analysis.classifier import ErrorClassifier
 from .tools.files import FileEditor
 from .tools.git import GitHandler
+from .agent import DebugAgent, AgentState
+from .security import SafetyPolicy
 
 
 class AgentOrchestrator:
@@ -42,7 +44,10 @@ class AgentOrchestrator:
 
         # Extract config sections
         models_config = self.config.get("models", {})
-        workspace_root = self.config.get("workspace_root", ".")
+        roles_config = self.config.get("roles", {})
+        workspace_root = self.config.get("system", {}).get("workspace_root", ".")
+        security_config = self.config.get("security", {})
+        session_config = self.config.get("session", {})
 
         # Initialize components
         self.session_manager = SessionManager(db_path=db_path)
@@ -52,30 +57,59 @@ class AgentOrchestrator:
         self.classifier = ErrorClassifier()
         self.file_editor = FileEditor(root=workspace_root)
         self.git_handler = GitHandler(root=workspace_root)
+        self.safety_policy = SafetyPolicy(config=security_config)
+
+        # Store role assignments
+        self.planner_model = roles_config.get("planner", "planner")
+        self.coder_model = roles_config.get("coder", "coder")
+        self.max_steps = session_config.get("max_steps", 50)
 
         # Active sessions tracking
         self._active_sessions: Dict[str, Dict[str, Any]] = {}
+        self._active_agents: Dict[str, DebugAgent] = {}
         self._stop_events: Dict[str, threading.Event] = {}
         self._lock = threading.Lock()
 
     def create_task(self, task_description: str) -> str:
         """
-        Create a new task/session.
+        Create a new task/session with a DebugAgent.
+
+        The task_description is a natural language goal that will be passed
+        to the DebugAgent, which uses the Planner LLM to convert it into
+        shell commands.
 
         Args:
-            task_description: The command or task to execute
+            task_description: Natural language task description (e.g., "Help me write a snake game")
 
         Returns:
             Session ID
         """
-        session_id = self.session_manager.create_session(command=task_description)
+        # Create a blank session (not executing the task directly!)
+        # The session is just for tracking - the agent will create sub-sessions for commands
+        session_id = self.session_manager.create_session(
+            command=f"[AGENT TASK] {task_description}"
+        )
+
+        # Create a DebugAgent for this task
+        agent = DebugAgent(
+            session_manager=self.session_manager,
+            model_manager=self.model_manager,
+            memory=self.memory,
+            observer=self.observer,
+            classifier=self.classifier,
+            safety_policy=self.safety_policy,
+            max_steps=self.max_steps,
+            planner_model=self.planner_model
+        )
 
         with self._lock:
             self._active_sessions[session_id] = {
                 "task": task_description,
                 "created_at": time.time(),
-                "step": 0
+                "step": 0,
+                "is_natural_language": True  # Flag to indicate this is an NL task
             }
+            self._active_agents[session_id] = agent
             self._stop_events[session_id] = threading.Event()
 
         return session_id
@@ -83,6 +117,9 @@ class AgentOrchestrator:
     def run_loop(self, session_id: str, max_iterations: int = 100):
         """
         Run the main orchestration loop for a session.
+
+        For natural language tasks, this delegates to the DebugAgent which
+        uses the Planner to convert the task into shell commands.
 
         Args:
             session_id: The session to run
@@ -92,9 +129,80 @@ class AgentOrchestrator:
         if not stop_event:
             return
 
+        # Get session info
+        with self._lock:
+            session_info = self._active_sessions.get(session_id, {})
+            agent = self._active_agents.get(session_id)
+
+        task_description = session_info.get("task", "")
+        is_nl_task = session_info.get("is_natural_language", False)
+
         # Start the session
         self.session_manager.start_session(session_id)
 
+        if is_nl_task and agent:
+            # Natural language task: use the DebugAgent
+            self._run_agent_loop(session_id, agent, task_description, stop_event)
+        else:
+            # Legacy behavior: direct command execution monitoring
+            self._run_legacy_loop(session_id, stop_event, max_iterations)
+
+    def _run_agent_loop(
+        self,
+        session_id: str,
+        agent: DebugAgent,
+        task_description: str,
+        stop_event: threading.Event
+    ):
+        """
+        Run the DebugAgent loop for a natural language task.
+
+        Args:
+            session_id: The session ID
+            agent: The DebugAgent instance
+            task_description: The natural language task
+            stop_event: Event to signal stop
+        """
+        try:
+            # Run the agent with the initial goal
+            results = agent.run(initial_goal=task_description)
+
+            # Update session info with results
+            with self._lock:
+                if session_id in self._active_sessions:
+                    self._active_sessions[session_id]["results"] = results
+                    self._active_sessions[session_id]["step"] = len(results)
+                    self._active_sessions[session_id]["completed_at"] = time.time()
+
+            # Determine final status
+            if results and results[-1].status == "COMPLETED":
+                self.session_manager.complete_session(session_id)
+            elif agent.state == AgentState.FAILED:
+                self.session_manager.fail_session(session_id)
+            else:
+                self.session_manager.complete_session(session_id)
+
+        except Exception as e:
+            # Log the error
+            with self._lock:
+                if session_id in self._active_sessions:
+                    self._active_sessions[session_id]["error"] = str(e)
+            self.session_manager.fail_session(session_id)
+
+    def _run_legacy_loop(
+        self,
+        session_id: str,
+        stop_event: threading.Event,
+        max_iterations: int
+    ):
+        """
+        Legacy loop for direct command execution (backward compatibility).
+
+        Args:
+            session_id: The session ID
+            stop_event: Event to signal stop
+            max_iterations: Maximum iterations
+        """
         iteration = 0
         last_log_length = 0
 

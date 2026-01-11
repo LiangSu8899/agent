@@ -116,7 +116,7 @@ class ConfigManager:
         """
         Load the global configuration.
         Creates default config if it doesn't exist.
-        Upgrades mock-only configs to production defaults.
+        File content takes PRIORITY over defaults - defaults only fill missing keys.
 
         Returns:
             Configuration dictionary
@@ -127,31 +127,46 @@ class ConfigManager:
         if config_path.exists():
             try:
                 with open(config_path, 'r') as f:
-                    self._config = yaml.safe_load(f) or {}
+                    file_config = yaml.safe_load(f) or {}
+
+                # Count models loaded from file for debugging
+                file_models = file_config.get("models", {})
+                print(f"[ConfigManager] Loaded {len(file_models)} models from file: {config_path}")
 
                 # Check if config needs upgrade (mock-only)
-                if self._is_mock_only_config():
-                    self._upgrade_config()
+                if self._is_mock_only_config_dict(file_config):
+                    # Upgrade mock-only config
+                    self._config = self._merge_with_defaults(file_config, upgrade_mock=True)
                     self.save_global_config()
+                    print(f"[ConfigManager] Upgraded mock-only config, now has {len(self._config.get('models', {}))} models")
+                else:
+                    # Normal merge: file content takes priority, defaults fill missing keys
+                    self._config = self._merge_with_defaults(file_config, upgrade_mock=False)
+                    print(f"[ConfigManager] Merged config has {len(self._config.get('models', {}))} models")
 
-            except (yaml.YAMLError, IOError):
+            except (yaml.YAMLError, IOError) as e:
+                print(f"[ConfigManager] Error loading config: {e}, using defaults")
                 self._config = self._deep_copy_config(DEFAULT_CONFIG)
         else:
             # Create default config
+            print(f"[ConfigManager] No config file found, creating default at: {config_path}")
             self._config = self._deep_copy_config(DEFAULT_CONFIG)
             self.save_global_config()
 
         self._config_path = config_path
         return self._config
 
-    def _is_mock_only_config(self) -> bool:
+    def _is_mock_only_config_dict(self, config: Dict) -> bool:
         """
-        Check if the current config only has mock models.
+        Check if a config dictionary only has mock models.
+
+        Args:
+            config: Configuration dictionary to check
 
         Returns:
             True if config should be upgraded
         """
-        models = self._config.get("models", {})
+        models = config.get("models", {})
         if not models:
             return True
 
@@ -159,31 +174,54 @@ class ConfigManager:
         model_names = set(models.keys())
         return model_names.issubset(MOCK_ONLY_MODELS)
 
-    def _upgrade_config(self):
+    def _merge_with_defaults(self, file_config: Dict, upgrade_mock: bool = False) -> Dict:
         """
-        Upgrade a mock-only config to production defaults.
-        Preserves any custom settings while adding new models.
+        Merge file config with defaults. File content takes PRIORITY.
+        Defaults only fill in missing keys.
+
+        Args:
+            file_config: Configuration loaded from file
+            upgrade_mock: If True, also add default models (for mock-only upgrade)
+
+        Returns:
+            Merged configuration dictionary
         """
         import copy
 
-        # Merge models from default config
-        default_models = DEFAULT_CONFIG.get("models", {})
-        current_models = self._config.get("models", {})
+        # Start with a deep copy of defaults
+        merged = self._deep_copy_config(DEFAULT_CONFIG)
 
-        # Add all default models (don't overwrite existing non-mock models)
-        for model_name, model_config in default_models.items():
-            if model_name not in current_models:
-                current_models[model_name] = copy.deepcopy(model_config)
+        # Deep merge file config ON TOP of defaults (file wins)
+        self._deep_merge_priority(merged, file_config)
 
-        self._config["models"] = current_models
+        # If upgrading mock config, ensure all default models are present
+        if upgrade_mock:
+            default_models = DEFAULT_CONFIG.get("models", {})
+            merged_models = merged.get("models", {})
+            for model_name, model_config in default_models.items():
+                if model_name not in merged_models:
+                    merged_models[model_name] = copy.deepcopy(model_config)
+            merged["models"] = merged_models
+            # Also update roles to production defaults
+            merged["roles"] = copy.deepcopy(DEFAULT_CONFIG.get("roles", {}))
 
-        # Update roles to use production models
-        self._config["roles"] = copy.deepcopy(DEFAULT_CONFIG.get("roles", {}))
+        return merged
 
-        # Preserve other settings but ensure defaults exist
-        for key in ["system", "session", "security"]:
-            if key not in self._config:
-                self._config[key] = copy.deepcopy(DEFAULT_CONFIG.get(key, {}))
+    def _deep_merge_priority(self, base: Dict, override: Dict):
+        """
+        Deep merge override into base. Override values take priority.
+
+        Args:
+            base: Base dictionary (modified in place)
+            override: Override dictionary (values take priority)
+        """
+        for key, value in override.items():
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                # Recursively merge nested dicts
+                self._deep_merge_priority(base[key], value)
+            else:
+                # Override value takes priority
+                base[key] = value
 
     def _deep_copy_config(self, config: Dict) -> Dict:
         """Create a deep copy of a config dictionary."""

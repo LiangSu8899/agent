@@ -17,7 +17,9 @@
       "Bash(pip install -e .)",
       "Bash(aos init)",
       "Bash(python tests/phase11_fix.py)",
-      "Bash(aos --version)"
+      "Bash(aos --version)",
+      "Bash(python tests/phase12_download.py)",
+      "Bash(python tests/phase13_fix.py)"
     ]
   }
 }

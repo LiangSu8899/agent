@@ -26,6 +26,7 @@ agent_core/tools/docker.py
 agent_core/tools/files.py
 agent_core/tools/git.py
 agent_core/utils/__init__.py
+agent_core/utils/downloader.py
 agent_core/utils/paths.py
 agent_core/utils/token_counter.py
 agent_os.egg-info/PKG-INFO

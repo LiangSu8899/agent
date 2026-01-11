@@ -37,6 +37,19 @@ try:
 except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
 
+# Try to import downloader utilities
+try:
+    from ..utils.downloader import (
+        ModelDownloader,
+        ModelMissingError,
+        DownloadError,
+        MODEL_PRESETS,
+        create_model_config,
+    )
+    DOWNLOADER_AVAILABLE = True
+except ImportError:
+    DOWNLOADER_AVAILABLE = False
+
 
 # Valid roles for hybrid mode
 VALID_ROLES = ["planner", "coder"]
@@ -51,7 +64,7 @@ class AgentREPL:
     # Slash commands registry
     COMMANDS = {
         "role": "Set model for a role: /role <planner|coder> <model_name>",
-        "model": "Set both roles to same model: /model <model_name>",
+        "model": "Set/add model: /model <name> | /model add | /model download <name>",
         "models": "List available models",
         "roles": "Show current role assignments",
         "project": "Switch to a project: /project <path>",
@@ -152,10 +165,15 @@ class AgentREPL:
         models = list(self.config.get("models", {}).keys())
         roles = VALID_ROLES
 
+        # Build model completions with subcommands
+        model_completions = {model: None for model in models}
+        model_completions["add"] = None
+        model_completions["download"] = {model: None for model in models}
+
         # Build nested completion dict
         completions = {
             "/role": {role: {model: None for model in models} for role in roles},
-            "/model": {model: None for model in models},
+            "/model": model_completions,
             "/models": None,
             "/roles": None,
             "/project": None,
@@ -286,12 +304,25 @@ class AgentREPL:
         return True
 
     def _handle_model(self, args: str) -> bool:
-        """Handle /model command - set both roles to same model (single mode)."""
-        if not args.strip():
+        """Handle /model command - set both roles to same model or add new model."""
+        args = args.strip()
+
+        if not args:
             # Show current models
             return self._handle_roles("")
 
-        model_name = args.strip()
+        # Check for subcommands
+        parts = args.split(maxsplit=1)
+        subcommand = parts[0].lower()
+
+        if subcommand == "add":
+            return self._handle_model_add()
+        elif subcommand == "download":
+            model_name = parts[1] if len(parts) > 1 else ""
+            return self._handle_model_download(model_name)
+
+        # Otherwise, treat as model name to switch to
+        model_name = args
 
         # Validate model
         if not self._is_valid_model(model_name):
@@ -299,10 +330,18 @@ class AgentREPL:
             self._print_error(f"Unknown model '{model_name}'. Use Tab to see available models.")
             if available:
                 self._print_info(f"Available: {', '.join(available[:5])}{'...' if len(available) > 5 else ''}")
+            self._print_info("Use '/model add' to add a new model")
             return True
 
-        # Check if model needs API key
+        # Check if local model file exists
         model_config = self.config.get("models", {}).get(model_name, {})
+        if model_config.get("type") == "local":
+            model_path = model_config.get("path", "")
+            if model_path and not os.path.exists(os.path.expanduser(model_path)):
+                # Model file missing - offer to download
+                return self._handle_missing_model(model_name, model_config)
+
+        # Check if model needs API key
         if self._needs_api_key(model_name, model_config):
             api_key = self._prompt_for_api_key(model_name)
             if not api_key:
@@ -318,6 +357,252 @@ class AgentREPL:
         self._print_success(f"Both planner and coder now use: {model_name}")
 
         return True
+
+    def _handle_missing_model(self, model_name: str, model_config: dict) -> bool:
+        """Handle a missing local model file - offer to download."""
+        model_path = model_config.get("path", "")
+        hf_repo = model_config.get("hf_repo")
+        hf_file = model_config.get("hf_file")
+        url = model_config.get("url")
+
+        self._print_warning(f"Model file not found: {model_path}")
+
+        # Check if we have download info
+        if not (hf_repo and hf_file) and not url:
+            self._print_error("No download information available for this model")
+            self._print_info("Please download the model manually or update the config")
+            return True
+
+        if not DOWNLOADER_AVAILABLE:
+            self._print_error("Downloader not available. Install huggingface_hub: pip install huggingface_hub")
+            return True
+
+        # Ask user if they want to download
+        try:
+            if hf_repo and hf_file:
+                self._print_info(f"Can download from HuggingFace: {hf_repo}/{hf_file}")
+            elif url:
+                self._print_info(f"Can download from: {url}")
+
+            choice = input("Download now? [Y/n]: ").strip().lower()
+            if choice in ("", "y", "yes"):
+                return self._download_model(model_name, model_config)
+            else:
+                self._print_info("Download cancelled")
+                return True
+        except (EOFError, KeyboardInterrupt):
+            self._print_info("\nDownload cancelled")
+            return True
+
+    def _download_model(self, model_name: str, model_config: dict) -> bool:
+        """Download a model file."""
+        if not DOWNLOADER_AVAILABLE:
+            self._print_error("Downloader not available")
+            return True
+
+        hf_repo = model_config.get("hf_repo")
+        hf_file = model_config.get("hf_file")
+        url = model_config.get("url")
+
+        try:
+            downloader = ModelDownloader(console=self.console)
+
+            if hf_repo and hf_file:
+                self._print_info(f"Downloading from HuggingFace: {hf_repo}/{hf_file}")
+                local_path = downloader.download_from_hf(hf_repo, hf_file)
+            elif url:
+                self._print_info(f"Downloading from URL: {url}")
+                local_path = downloader.download_from_url(url)
+            else:
+                self._print_error("No download source available")
+                return True
+
+            # Update config with actual path
+            self.config["models"][model_name]["path"] = local_path
+            self._save_config()
+
+            self._print_success(f"Model downloaded to: {local_path}")
+            self._print_success(f"Model '{model_name}' is now ready to use")
+
+            return True
+
+        except DownloadError as e:
+            self._print_error(f"Download failed: {e}")
+            return True
+        except Exception as e:
+            self._print_error(f"Unexpected error: {e}")
+            return True
+
+    def _handle_model_download(self, model_name: str) -> bool:
+        """Handle /model download <name> command."""
+        if not model_name:
+            self._print_error("Usage: /model download <model_name>")
+            return True
+
+        if not self._is_valid_model(model_name):
+            self._print_error(f"Unknown model: {model_name}")
+            return True
+
+        model_config = self.config.get("models", {}).get(model_name, {})
+        return self._download_model(model_name, model_config)
+
+    def _handle_model_add(self) -> bool:
+        """Handle /model add command - interactive wizard to add a new model."""
+        if not DOWNLOADER_AVAILABLE:
+            self._print_error("Model wizard requires downloader module")
+            self._print_info("Install with: pip install huggingface_hub")
+            return True
+
+        self._print_info("=== Add New Model Wizard ===")
+        self._print_info("Press Ctrl+C to cancel at any time\n")
+
+        try:
+            # Step 1: Model name
+            name = input("Model name (e.g., my-qwen): ").strip()
+            if not name:
+                self._print_error("Model name is required")
+                return True
+
+            # Check if name already exists
+            if name in self.config.get("models", {}):
+                self._print_warning(f"Model '{name}' already exists. Overwrite? [y/N]: ")
+                if input().strip().lower() != "y":
+                    self._print_info("Cancelled")
+                    return True
+
+            # Step 2: Source type
+            print("\nSource type:")
+            print("  1) HuggingFace (recommended)")
+            print("  2) Direct URL")
+            print("  3) Local file (already downloaded)")
+
+            source_choice = input("Choose [1/2/3]: ").strip()
+
+            source_type = "huggingface"
+            hf_repo = None
+            hf_file = None
+            url = None
+            local_path = None
+
+            if source_choice == "1":
+                source_type = "huggingface"
+                hf_repo = input("\nHuggingFace repo (e.g., TheBloke/Qwen-7B-GGUF): ").strip()
+                if not hf_repo:
+                    self._print_error("Repository ID is required")
+                    return True
+
+                hf_file = input("Filename (e.g., qwen-7b.Q4_K_M.gguf): ").strip()
+                if not hf_file:
+                    self._print_error("Filename is required")
+                    return True
+
+            elif source_choice == "2":
+                source_type = "url"
+                url = input("\nDirect URL: ").strip()
+                if not url:
+                    self._print_error("URL is required")
+                    return True
+
+            elif source_choice == "3":
+                source_type = "local"
+                local_path = input("\nLocal file path: ").strip()
+                if not local_path:
+                    self._print_error("Path is required")
+                    return True
+                local_path = os.path.expanduser(local_path)
+                if not os.path.exists(local_path):
+                    self._print_warning(f"File not found: {local_path}")
+
+            else:
+                self._print_error("Invalid choice")
+                return True
+
+            # Step 3: Preset selection
+            print("\nSelect preset:")
+            print("  1) Standard (8K context, GPU acceleration)")
+            print("  2) Large (16K context, GPU acceleration)")
+            print("  3) CPU Only (4K context, no GPU)")
+            print("  4) Custom (enter manually)")
+
+            preset_choice = input("Choose [1/2/3/4]: ").strip()
+
+            preset = "standard"
+            context_length = None
+            n_gpu_layers = None
+
+            if preset_choice == "1":
+                preset = "standard"
+            elif preset_choice == "2":
+                preset = "large"
+            elif preset_choice == "3":
+                preset = "cpu_only"
+            elif preset_choice == "4":
+                preset = "custom"
+                try:
+                    ctx_input = input("Context length (default 8192): ").strip()
+                    context_length = int(ctx_input) if ctx_input else 8192
+
+                    gpu_input = input("GPU layers (-1 for all, 0 for CPU only): ").strip()
+                    n_gpu_layers = int(gpu_input) if gpu_input else -1
+                except ValueError:
+                    self._print_error("Invalid number")
+                    return True
+
+            # Step 4: Description
+            description = input("\nDescription (optional): ").strip()
+            if not description:
+                description = f"Local model: {name}"
+
+            # Create model config
+            model_config = create_model_config(
+                name=name,
+                source_type=source_type,
+                hf_repo=hf_repo,
+                hf_file=hf_file,
+                url=url,
+                local_path=local_path,
+                preset=preset,
+                context_length=context_length,
+                n_gpu_layers=n_gpu_layers,
+                description=description
+            )
+
+            # Save to config
+            if "models" not in self.config:
+                self.config["models"] = {}
+
+            self.config["models"][name] = model_config
+            self._save_config()
+
+            self._print_success(f"Model '{name}' added to configuration")
+
+            # Show summary
+            if RICH_AVAILABLE and self.console:
+                table = Table(title=f"Model: {name}")
+                table.add_column("Property", style="cyan")
+                table.add_column("Value", style="green")
+
+                for key, value in model_config.items():
+                    table.add_row(key, str(value))
+
+                self.console.print(table)
+
+            # Ask to download if applicable
+            if source_type in ("huggingface", "url"):
+                model_path = model_config.get("path", "")
+                if not os.path.exists(os.path.expanduser(model_path)):
+                    choice = input("\nDownload model now? [Y/n]: ").strip().lower()
+                    if choice in ("", "y", "yes"):
+                        return self._download_model(name, model_config)
+
+            # Refresh completer
+            self._refresh_completer()
+
+            return True
+
+        except (EOFError, KeyboardInterrupt):
+            self._print_info("\nWizard cancelled")
+            return True
 
     def _handle_models(self, args: str) -> bool:
         """Handle /models command - list available models."""

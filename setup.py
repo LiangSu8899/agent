@@ -34,6 +34,7 @@ extras_require = {
     "llm": [
         "tiktoken>=0.5",
         "llama-cpp-python>=0.2",
+        "huggingface_hub>=0.20",
     ],
     "docker": [
         "docker>=6.0",

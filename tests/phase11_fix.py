@@ -90,11 +90,11 @@ class TestPhase11ConfigUpgrade(unittest.TestCase):
         }
 
         cm._config = mock_config
-        self.assertTrue(cm._is_mock_only_config())
+        self.assertTrue(cm._is_mock_only_config_dict(mock_config))
 
         # Config with real models should not be detected
         cm._config = DEFAULT_CONFIG.copy()
-        self.assertFalse(cm._is_mock_only_config())
+        self.assertFalse(cm._is_mock_only_config_dict(DEFAULT_CONFIG))
 
     def test_mock_config_upgrade(self):
         """Test that mock-only configs are upgraded on load."""
