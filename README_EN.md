@@ -173,6 +173,8 @@ This indicates GLM-4 is used for planning and DeepSeek for coding.
 | `/roles` | View current role assignments | `/roles` |
 | `/models` | List all available models and pricing ($/1M tokens) | `/models` |
 | `/status` | View current project path and session status | `/status` |
+| `/project [path]` | Switch to a specific project or view current project info | `/project ~/my-app` |
+| `/projects` | List all historical projects and last active status | `/projects` |
 | `/cost` | View per-model token usage and estimated total cost | `/cost` |
 | `/clear` | Clear the memory of the current project (others unaffected) | `/clear` |
 | `/config` | View the loaded global configuration | `/config` |

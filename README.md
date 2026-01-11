@@ -173,6 +173,8 @@ REPL 底部常亮显示当前配置：
 | `/roles` | 查看当前角色分配详情 | `/roles` |
 | `/models` | 列出所有可用模型及价格 ($/1M tokens) | `/models` |
 | `/status` | 查看当前项目路径及 Session 状态 | `/status` |
+| `/project [path]` | 切换到指定项目或查看当前项目信息 | `/project ~/my-app` |
+| `/projects` | 列出所有历史项目及其最后活跃状态 | `/projects` |
 | `/cost` | 查看分模型的 Token 消耗与预估费用 | `/cost` |
 | `/clear` | 清空当前项目的记忆 (不影响其他项目) | `/clear` |
 | `/config` | 查看加载的全局配置 | `/config` |
