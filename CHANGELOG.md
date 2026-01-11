@@ -1,5 +1,27 @@
 # Changelog
 
+## [V1.3.0] - 2026-01-10 (Phase 10)
+### ✨ 新增特性 (Features)
+- **Global Context Manager**: 引入 "Global Config + Local Context" 模式。支持自动检测项目目录 (`.agent/`)，跨目录打开项目，并保持独立的对话状态。
+- **Global CLI**: 通过 `pip install -e .` 支持全局 `aos` 和 `agent-os` 命令。
+- **State Persistence**: 自动记录并恢复上一次工作的项目路径。
+
+### ⚡️ 改进 (Improvements)
+- **Directory Management**: 启动时自动搜索项目配置文件，支持初始化新项目交互引导。
+
+---
+
+## [V1.2.0] - 2026-01-10 (Phase 9)
+### ✨ 新增特性 (Features)
+- **Hybrid Role Strategy**: 允许同时配置 `Planner` (规划者) 和 `Coder` (编码者) 角色，支持不同任务使用不同的模型组合。
+- **Role Control Commands**: 
+  - `/role`: 动态为角色分配模型。
+  - `/roles`: 查看当前角色分配状态。
+  - `/models`: 查看可用模型列表及详细计费信息。
+- **Interactive Completion**: 增强了 Slash Commands 的自动补全功能，支持角色名和模型名的模糊匹配。
+
+---
+
 ## [V1.1.0] - 2026-01-10 (Phase 8)
 ### ✨ 新增特性 (Features)
 - **Interactive REPL**: 基于 `prompt_toolkit` 和 `rich` 的全新交互式终端。

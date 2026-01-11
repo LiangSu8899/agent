@@ -1,4 +1,4 @@
-# DebugFlow (V1.1)
+# DebugFlow (V1.3)
 
 <p align="center">
   <a href="README_EN.md">English</a> | <a href="README.md">中文</a>
@@ -75,65 +75,132 @@ cd agent-os
 python -m venv venv
 source venv/bin/activate
 
-# 3. 安装依赖
+# 3. 安装依赖与全局命令
 pip install -r requirements.txt
+pip install -e .
 # 核心依赖：llama-cpp-python, duckduckgo-search, gitpython, docker, tiktoken, openai
 ```
 
-### 2. 初始化配置
+---
 
-首次运行会自动生成 `config.yaml`，建议手动配置模型路径。
+## 📁 项目管理与启动指南 (New in V1.3)
 
-```bash
-# 查看帮助并运行一次生成配置
-python main.py --help
-vim config.yaml
-```
+Agent OS 采用 "Global Config + Local Context" 的管理模式（类似 Git 或 VS Code）。
 
-## 🚀 交互模式 (Interactive REPL) - *New in V1.1*
+### 1. 启动逻辑
+Agent 会根据你所在的目录自动判断上下文：
 
-从 V1.1 版本开始，推荐使用交互式 REPL 模式。它提供了命令补全、历史记录和可视化状态面板。
+- **场景 A：进入现有项目**
+  ```bash
+  cd ~/my-backend-project
+  aos
+  ```
+  **系统行为**：检测到当前目录存在 `.agent/` 文件夹。  
+  **结果**：直接加载该项目的历史记录和 Session，状态栏显示 `[Proj: my-backend-project]`。
+
+- **场景 B：初始化新项目**
+  ```bash
+  mkdir new-app && cd new-app
+  aos
+  ```
+  **系统行为**：检测到当前目录没有 `.agent/` 文件夹。  
+  **交互提示**：
+  ```plaintext
+  No project found in current directory.
+  [1] Initialize new project here? (.agent/)
+  [2] Open last project: /home/user/old-project
+  [3] Exit
+  > 
+  ```
+  选择 `1`：会在当前目录创建 `.agent/`，并初始化独立的数据库。
+
+- **场景 C：快速打开上次工作区**
+  无论你在哪个目录（例如 `~`）：
+  ```bash
+  aos
+  # 选择 [2] Open last project
+  ```
+  **结果**：Agent 会自动切换工作目录（chdir）到上一次的项目路径，并加载该环境。
+
+### 2. 配置文件位置
+
+| 配置文件路径 | 作用 |
+| --- | --- |
+| `~/.agent_os/config.yaml` | **全局配置**：存放 API Keys、模型定义、默认角色设置。所有项目共用。 |
+| `~/.agent_os/state.json` | **状态追踪**：记录“上一次打开的项目”路径。 |
+| `./.agent/sessions.db` | **项目数据**：当前项目的对话历史、报错记录、Token 消耗统计。 |
+
+---
+
+## 🚀 交互模式 (Interactive REPL)
+
+从 V1.1 版本开始，推荐使用交互式 REPL 模式。安装后使用 `aos` 或 `agent-os` 命令即可启动。
 
 ### 启动
 ```bash
 # 默认启动 REPL
-python main.py
+aos
 
 # 或者显式启动
-python main.py repl
+aos repl
 ```
 
-### Slash Commands (指令)
-在 `[agent] >` 提示符下，你可以直接输入任务描述，也可以使用以下指令管理系统：
+---
+
+## 🎮 交互与混合模型指南 (New in V1.2)
+
+V1.2 版本引入了 **Hybrid Role Strategy (混合角色策略)**，允许你将不同的模型分配给不同的职责，以达到性能与成本的最佳平衡。
+
+### 1. 核心概念：角色 (Roles)
+
+系统包含两个核心角色：
+- 🧠 **Planner (规划者)**: 负责分析错误、查阅资料、制定步骤。推荐逻辑强、Token 便宜的模型（如 GLM-4, DeepSeek-V3）。
+- 👨‍💻 **Coder (编码者)**: 负责编写代码、生成 Patch。推荐代码能力强、上下文长的模型（如 DeepSeek-Coder, Claude-3.5）。
+
+### 2. 状态栏解读
+REPL 底部常亮显示当前配置：
+```plaintext
+[Planner: glm-4-plus | Coder: deepseek-v3]
+```
+这表示：思考用 GLM-4，写代码用 DeepSeek。
+
+### 3. Slash Commands (常用指令)
 
 | 指令 | 说明 | 示例 |
 | --- | --- | --- |
-| `/model <name>` | 动态切换模型 (支持 API Key 自动录入) | `/model gpt-4` 或 `/model deepseek-coder` |
-| `/cost` | 查看当前会话 Token 消耗与预估费用 | `/cost` |
-| `/clear` | 清空当前上下文记忆 (Memory) | `/clear` |
-| `/status` | 查看当前 Session 状态与显存占用 | `/status` |
-| `/history` | 查看执行过的命令历史 | `/history` |
-| `/config` | 查看当前生效配置 (已脱敏) | `/config` |
+| `/role <role> <model>` | **核心指令**：为指定角色绑定模型 | `/role planner glm-4-plus` |
+| `/model <model>` | **快捷指令**：将 Planner 和 Coder 设为同一个模型 | `/model gpt-4o` |
+| `/roles` | 查看当前角色分配详情 | `/roles` |
+| `/models` | 列出所有可用模型及价格 ($/1M tokens) | `/models` |
+| `/status` | 查看当前项目路径及 Session 状态 | `/status` |
+| `/cost` | 查看分模型的 Token 消耗与预估费用 | `/cost` |
+| `/clear` | 清空当前项目的记忆 (不影响其他项目) | `/clear` |
+| `/config` | 查看加载的全局配置 | `/config` |
 | `/help` | 显示帮助菜单 | `/help` |
 | `/exit` | 退出程序 | `/exit` |
 
-### 交互示例
-```plaintext
-[agent] > /model glm-4
-✓ Switched to model: glm-4
+---
 
-[agent] > Fix the docker build error in current directory
-⠋ Agent is thinking...
-  ➜ Executing: docker build .
-  ➜ Error detected: "COPY failed: file not found"
-  ➜ Thinking: I need to check if the file exists...
-  ➜ Executing: ls -la
-  ...
-✓ Task Completed.
+### 4. 最佳实践配置
 
-[agent] > /cost
-Total Tokens: 1,250 | Estimated Cost: $0.002
-```
+- 💰 **极致性价比方案 (推荐)**
+  ```bash
+  /role planner deepseek-v3
+  /role coder deepseek-coder
+  ```
+- 🚀 **土豪/攻坚方案 (解决疑难杂症)**
+  ```bash
+  /model gpt-4o
+  ```
+- 🛡️ **隐私/本地方案 (RTX 5090)**
+  ```bash
+  /model local-deepseek-coder-v2
+  ```
+
+### 5. 自动补全技巧
+- 输入 `/role` 后按 **空格**，会自动弹出 `planner` / `coder` 选项。
+- 选择角色后按 **空格**，会自动弹出 `config.yaml` 中配置好的所有模型列表。
+- 支持模糊匹配，无需记忆全名。
 
 ---
 

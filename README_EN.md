@@ -1,4 +1,4 @@
-# DebugFlow (V1.1)
+# DebugFlow (V1.3)
 
 <p align="center">
   <a href="README_EN.md">English</a> | <a href="README.md">中文</a>
@@ -75,65 +75,132 @@ cd agent-os
 python -m venv venv
 source venv/bin/activate
 
-# 3. Install dependencies
+# 3. Install dependencies & global command
 pip install -r requirements.txt
+pip install -e .
 # Core dependencies: llama-cpp-python, duckduckgo-search, gitpython, docker, tiktoken, openai
 ```
 
-### 2. Initial Configuration
+---
 
-`config.yaml` is generated automatically on first run, but manual configuration is recommended.
+## 📁 Project Management & Startup Guide (New in V1.3)
 
-```bash
-# View help and run once to generate config
-python main.py --help
-vim config.yaml
-```
+Agent OS uses a "Global Config + Local Context" management model (similar to Git or VS Code).
 
-## 🚀 Interactive REPL - *New in V1.1*
+### 1. Startup Logic
+Agent automatically detects context based on your current directory:
 
-Starting from V1.1, the Interactive REPL mode is highly recommended. It features command completion, command history, and a visual status panel.
+- **Scenario A: Entering an existing project**
+  ```bash
+  cd ~/my-backend-project
+  aos
+  ```
+  **Behavior**: Detects `.agent/` folder in the current directory.  
+  **Result**: Automatically loads the project history and session. Status bar shows `[Proj: my-backend-project]`.
+
+- **Scenario B: Initializing a new project**
+  ```bash
+  mkdir new-app && cd new-app
+  aos
+  ```
+  **Behavior**: No `.agent/` folder found.  
+  **Prompt**:
+  ```plaintext
+  No project found in current directory.
+  [1] Initialize new project here? (.agent/)
+  [2] Open last project: /home/user/old-project
+  [3] Exit
+  > 
+  ```
+  Selecting `1` creates `.agent/` and initializes a standalone database for the project.
+
+- **Scenario C: Quickly open the last workspace**
+  From any directory (e.g., `~`):
+  ```bash
+  aos
+  # Select [2] Open last project
+  ```
+  **Result**: Agent automatically changes directory (`chdir`) to the last project path and loads it.
+
+### 2. Configuration Paths
+
+| Config Path | Role |
+| --- | --- |
+| `~/.agent_os/config.yaml` | **Global Config**: Stores API Keys, model definitions, and default role settings. Shared across all projects. |
+| `~/.agent_os/state.json` | **State Tracking**: Records the path of the "last opened project." |
+| `./.agent/sessions.db` | **Project Data**: Local project conversation history, error logs, and token usage stats. |
+
+---
+
+## 🚀 Interactive REPL
+
+From V1.1 onwards, the Interactive REPL is the recommended way to use DebugFlow. After installation, launch it with `aos` or `agent-os`.
 
 ### Launching
 ```bash
 # Start REPL by default
-python main.py
+aos
 
 # Or explicitly launch it
-python main.py repl
+aos repl
 ```
 
-### Slash Commands
-Within the `[agent] >` prompt, you can input tasks directly or use these commands to manage the system:
+---
+
+## 🎮 Interactive & Hybrid Model Guide (New in V1.2)
+
+V1.2 introduces the **Hybrid Role Strategy**, allowing you to assign different models to specific responsibilities for optimal performance and cost.
+
+### 1. Core Concept: Roles
+
+The system consists of two primary roles:
+- 🧠 **Planner**: Analyzes errors, researches fixes, and plans steps. Recommended: High-logic, low-cost models (e.g., GLM-4, DeepSeek-V3).
+- 👨‍💻 **Coder**: Writes code and generates patches. Recommended: High-coding ability, long-context models (e.g., DeepSeek-Coder, Claude-3.5).
+
+### 2. Status Bar
+The bottom of the REPL always displays the current configuration:
+```plaintext
+[Planner: glm-4-plus | Coder: deepseek-v3]
+```
+This indicates GLM-4 is used for planning and DeepSeek for coding.
+
+### 3. Slash Commands
 
 | Command | Description | Example |
 | --- | --- | --- |
-| `/model <name>` | Hot-switch models (supports auto API Key entry) | `/model gpt-4` or `/model deepseek-coder` |
-| `/cost` | View token usage and estimated cost for the current session | `/cost` |
-| `/clear` | Clear the current context memory | `/clear` |
-| `/status` | View current session status and VRAM usage | `/status` |
-| `/history` | View execution command history | `/history` |
-| `/config` | View current configuration (sanitized) | `/config` |
+| `/role <role> <model>` | **Core Command**: Bind a model to a specific role | `/role planner glm-4-plus` |
+| `/model <model>` | **Shortcut**: Set both Planner and Coder to the same model | `/model gpt-4o` |
+| `/roles` | View current role assignments | `/roles` |
+| `/models` | List all available models and pricing ($/1M tokens) | `/models` |
+| `/status` | View current project path and session status | `/status` |
+| `/cost` | View per-model token usage and estimated total cost | `/cost` |
+| `/clear` | Clear the memory of the current project (others unaffected) | `/clear` |
+| `/config` | View the loaded global configuration | `/config` |
 | `/help` | Show the help menu | `/help` |
 | `/exit` | Exit the application | `/exit` |
 
-### Interaction Example
-```plaintext
-[agent] > /model gpt-4o
-✓ Switched to model: gpt-4o
+---
 
-[agent] > Fix the docker build error in current directory
-⠋ Agent is thinking...
-  ➜ Executing: docker build .
-  ➜ Error detected: "COPY failed: file not found"
-  ➜ Thinking: I need to check if the file exists...
-  ➜ Executing: ls -la
-  ...
-✓ Task Completed.
+### 4. Best Practice Configurations
 
-[agent] > /cost
-Total Tokens: 1,250 | Estimated Cost: $0.002
-```
+- 💰 **Best Value (Recommended)**
+  ```bash
+  /role planner deepseek-v3
+  /role coder deepseek-coder
+  ```
+- 🚀 **Power/Expert Mode (Hard bugs)**
+  ```bash
+  /model gpt-4o
+  ```
+- 🛡️ **Privacy/Local Mode (RTX 5090)**
+  ```bash
+  /model local-deepseek-coder-v2
+  ```
+
+### 5. Completion Tips
+- Type `/role` and press **Space** to see `planner` / `coder` options.
+- After selecting a role, press **Space** again to see the list of models from your `config.yaml`.
+- Supports fuzzy matching—no need to remember exact model names.
 
 ---
 
