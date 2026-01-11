@@ -17,7 +17,7 @@ from .project import ProjectManager
 from .config import ConfigManager
 
 
-def create_orchestrator(config: dict, project_manager: ProjectManager) -> AgentOrchestrator:
+def create_orchestrator(config: dict, project_manager: ProjectManager, debug: bool = False) -> AgentOrchestrator:
     """Create an orchestrator from config and project manager."""
     # Get project-specific paths
     db_path = project_manager.get_session_db_path()
@@ -31,13 +31,15 @@ def create_orchestrator(config: dict, project_manager: ProjectManager) -> AgentO
     return AgentOrchestrator(
         db_path=db_path,
         config=config,
-        headless=False
+        headless=False,
+        debug=debug
     )
 
 
 def resolve_project(args) -> tuple:
     """
     Resolve the project to use based on current directory and state.
+    Automatically restores project settings including Planner/Coder models.
 
     Returns:
         Tuple of (ProjectManager, ConfigManager, config_dict)
@@ -46,49 +48,90 @@ def resolve_project(args) -> tuple:
     pm = ProjectManager()
     cm = ConfigManager()
 
-    # Load global config
-    config = cm.load_global_config()
+    # Load config using proximity principle (cwd first, then global)
+    config = cm.load_config()
 
     # Get current directory
     current_dir = os.getcwd()
 
-    # Check startup resolution
+    # Check if current directory has .agent folder (existing project)
+    agent_dir = os.path.join(current_dir, ".agent")
+    if os.path.isdir(agent_dir):
+        # Auto-load existing project
+        pm.load_project(current_dir)
+        print(f"[Auto-restored] Project: {pm.get_project_name()}")
+
+        # Try to restore project-specific config
+        project_config_path = os.path.join(agent_dir, "config.yaml")
+        if os.path.exists(project_config_path):
+            try:
+                with open(project_config_path, 'r') as f:
+                    project_config = yaml.safe_load(f) or {}
+
+                # Merge project config into main config (project takes precedence)
+                if "roles" in project_config:
+                    config["roles"] = project_config["roles"]
+                    planner = project_config["roles"].get("planner", "?")
+                    coder = project_config["roles"].get("coder", "?")
+                    print(f"[Auto-restored] Roles: Planner={planner}, Coder={coder}")
+
+            except Exception as e:
+                print(f"[Warning] Could not load project config: {e}")
+
+        # Add to recent projects
+        pm.add_to_recent_projects(current_dir)
+        return pm, cm, config
+
+    # Check startup resolution for other cases
     resolution = pm.resolve_startup_project(current_dir)
 
     if resolution["action"] == "load":
         # Load existing project
         pm.load_project(resolution["path"])
-        print(f"Loaded project: {pm.get_project_name()}")
+        print(f"[Loaded] Project: {pm.get_project_name()}")
+
+        # Change to project directory
+        if resolution["path"] != current_dir:
+            try:
+                os.chdir(resolution["path"])
+                print(f"[Changed directory] {resolution['path']}")
+            except OSError:
+                pass
 
     elif resolution["action"] == "init":
         # No project found, initialize in current directory
         if not hasattr(args, 'no_init') or not args.no_init:
-            print(f"No project found. Initializing in: {current_dir}")
+            print(f"[New project] Initializing in: {current_dir}")
             pm.init_project(current_dir)
-            print(f"Project initialized: {pm.get_project_name()}")
+            print(f"[Created] Project: {pm.get_project_name()}")
 
     elif resolution["action"] == "ask":
         # Ask user what to do
-        print(f"\nNo project found in current directory: {current_dir}")
-        print(f"Last project: {resolution['last']}")
+        print(f"\n[No project] Current directory: {current_dir}")
+        if resolution.get('last'):
+            print(f"[Last project] {resolution['last']}")
         print()
         print("Options:")
         print("  1) Initialize new project here")
-        print(f"  2) Open last project ({os.path.basename(resolution['last'])})")
-        print("  3) Exit")
+        if resolution.get('last'):
+            print(f"  2) Open last project ({os.path.basename(resolution['last'])})")
+            print("  3) Exit")
+        else:
+            print("  2) Exit")
         print()
 
         try:
-            choice = input("Choose [1/2/3]: ").strip()
+            choice = input("Choose: ").strip()
         except (EOFError, KeyboardInterrupt):
-            choice = "3"
+            choice = "3" if resolution.get('last') else "2"
 
         if choice == "1":
             pm.init_project(current_dir)
-            print(f"Project initialized: {pm.get_project_name()}")
-        elif choice == "2":
+            print(f"[Created] Project: {pm.get_project_name()}")
+        elif choice == "2" and resolution.get('last'):
             pm.load_project(resolution["last"])
-            print(f"Loaded project: {pm.get_project_name()}")
+            os.chdir(resolution["last"])
+            print(f"[Loaded] Project: {pm.get_project_name()}")
         else:
             print("Exiting.")
             sys.exit(0)
@@ -116,9 +159,12 @@ def cmd_start(args, pm: ProjectManager, cm: ConfigManager, config: dict):
         print("Error: Task description required")
         sys.exit(1)
 
-    orchestrator = create_orchestrator(config, pm)
+    debug = getattr(args, 'debug', False)
+    orchestrator = create_orchestrator(config, pm, debug=debug)
 
     print(f"[{pm.get_project_name()}] Starting task: {task}")
+    if debug:
+        print("[DEBUG MODE ENABLED] Raw LLM outputs will be printed")
     session_id = orchestrator.create_task(task)
     print(f"Session ID: {session_id}")
 
@@ -264,7 +310,8 @@ def cmd_status(args, pm: ProjectManager, cm: ConfigManager, config: dict):
 
 def cmd_repl(args, pm: ProjectManager, cm: ConfigManager, config: dict):
     """Start interactive REPL."""
-    orchestrator = create_orchestrator(config, pm)
+    debug = getattr(args, 'debug', False)
+    orchestrator = create_orchestrator(config, pm, debug=debug)
 
     # Add project info to config for REPL display
     config["project"] = {
@@ -272,11 +319,18 @@ def cmd_repl(args, pm: ProjectManager, cm: ConfigManager, config: dict):
         "path": pm.get_current_project()
     }
 
+    # Use the actual config path (where config was loaded from)
+    config_path = cm.get_config_path()
+
+    if debug:
+        print("[DEBUG MODE ENABLED] Raw LLM outputs will be printed")
+
     repl = AgentREPL(
         orchestrator=orchestrator,
         config=config,
-        config_path=cm.get_global_config_path(),
-        project_manager=pm
+        config_path=str(config_path) if config_path else "config.yaml",
+        project_manager=pm,
+        debug=debug
     )
     repl.run()
 
@@ -303,6 +357,12 @@ Commands:
         "--version",
         action="version",
         version="agent-os 0.1.0"
+    )
+
+    parser.add_argument(
+        "--debug", "-d",
+        action="store_true",
+        help="Enable debug mode (print raw LLM outputs)"
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")

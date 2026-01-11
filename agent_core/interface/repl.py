@@ -8,11 +8,12 @@ import sys
 import threading
 import time
 import yaml
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Try to import rich for beautiful output
 try:
-    from rich.console import Console
+    from rich.console import Console, Group
     from rich.live import Live
     from rich.panel import Panel
     from rich.spinner import Spinner
@@ -20,6 +21,9 @@ try:
     from rich.table import Table
     from rich.markdown import Markdown
     from rich.style import Style as RichStyle
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+    from rich.layout import Layout
+    from rich.tree import Tree
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -50,9 +54,52 @@ try:
 except ImportError:
     DOWNLOADER_AVAILABLE = False
 
+# Import event system
+from ..events import EventEmitter, EventType, AgentEvent, get_event_emitter, reset_event_emitter
+
 
 # Valid roles for hybrid mode
 VALID_ROLES = ["planner", "coder"]
+
+
+# Event type to icon/color mapping
+EVENT_STYLES = {
+    EventType.AGENT_START: ("rocket", "bold blue"),
+    EventType.AGENT_COMPLETE: ("checkmark", "bold green"),
+    EventType.AGENT_ERROR: ("cross_mark", "bold red"),
+    EventType.STEP_START: ("play_button", "cyan"),
+    EventType.STEP_COMPLETE: ("check_mark_button", "green"),
+    EventType.PLANNER_START: ("brain", "magenta"),
+    EventType.PLANNER_THINKING: ("thought_balloon", "magenta"),
+    EventType.PLANNER_RESPONSE: ("light_bulb", "yellow"),
+    EventType.EXECUTOR_START: ("gear", "blue"),
+    EventType.EXECUTOR_RUNNING: ("hourglass_flowing_sand", "blue"),
+    EventType.EXECUTOR_COMPLETE: ("white_check_mark", "green"),
+    EventType.OBSERVER_START: ("eyes", "cyan"),
+    EventType.OBSERVER_RESULT: ("magnifying_glass_tilted_left", "cyan"),
+    EventType.FILE_CREATE: ("page_facing_up", "green"),
+    EventType.FILE_MODIFY: ("pencil", "yellow"),
+    EventType.FILE_DELETE: ("wastebasket", "red"),
+    EventType.TASK_SUMMARY: ("clipboard", "bold white"),
+}
+
+# Role labels for display
+ROLE_LABELS = {
+    EventType.PLANNER_START: "[PLANNER]",
+    EventType.PLANNER_THINKING: "[PLANNER]",
+    EventType.PLANNER_RESPONSE: "[PLANNER]",
+    EventType.EXECUTOR_START: "[EXECUTOR]",
+    EventType.EXECUTOR_RUNNING: "[EXECUTOR]",
+    EventType.EXECUTOR_COMPLETE: "[EXECUTOR]",
+    EventType.OBSERVER_START: "[OBSERVER]",
+    EventType.OBSERVER_RESULT: "[OBSERVER]",
+    EventType.AGENT_START: "[AGENT]",
+    EventType.AGENT_COMPLETE: "[AGENT]",
+    EventType.AGENT_ERROR: "[AGENT]",
+    EventType.FILE_CREATE: "[FILE]",
+    EventType.FILE_MODIFY: "[FILE]",
+    EventType.TASK_SUMMARY: "[SUMMARY]",
+}
 
 
 class AgentREPL:
@@ -85,7 +132,8 @@ class AgentREPL:
         config: Optional[Dict[str, Any]] = None,
         config_path: str = "config.yaml",
         history_file: str = ".agent_history",
-        project_manager=None
+        project_manager=None,
+        debug: bool = False
     ):
         """
         Initialize the AgentREPL.
@@ -96,12 +144,14 @@ class AgentREPL:
             config_path: Path to config file for saving updates
             history_file: Path to command history file
             project_manager: ProjectManager instance for project switching
+            debug: Enable debug mode
         """
         self.orchestrator = orchestrator
         self.config = config or {}
         self.config_path = config_path
         self.history_file = history_file
         self.project_manager = project_manager
+        self.debug = debug
 
         # Ensure roles exist in config
         if "roles" not in self.config:
@@ -297,11 +347,55 @@ class AgentREPL:
             self._save_config()
             self._print_success(f"API key saved for {model_name}")
 
-        # Update role
+        # Update role in config
         self.config["roles"][role_name] = model_name
+
+        # Sync with orchestrator
+        if self.orchestrator:
+            if role_name == "planner":
+                self.orchestrator.set_planner_role(model_name)
+            elif role_name == "coder":
+                self.orchestrator.set_coder_role(model_name)
+
+        # Save to project config for auto-restore
+        self._save_project_config()
+
         self._print_success(f"Role '{role_name}' now uses model: {model_name}")
 
         return True
+
+    def _save_project_config(self):
+        """Save current roles to project config for auto-restore."""
+        if not self.project_manager:
+            return
+
+        project_path = self.project_manager.get_current_project()
+        if not project_path:
+            return
+
+        agent_dir = os.path.join(project_path, ".agent")
+        if not os.path.isdir(agent_dir):
+            return
+
+        project_config_path = os.path.join(agent_dir, "config.yaml")
+
+        try:
+            # Load existing project config or create new
+            project_config = {}
+            if os.path.exists(project_config_path):
+                with open(project_config_path, 'r') as f:
+                    project_config = yaml.safe_load(f) or {}
+
+            # Update roles
+            project_config["roles"] = self.config.get("roles", {})
+
+            # Save
+            with open(project_config_path, 'w') as f:
+                yaml.dump(project_config, f, default_flow_style=False)
+
+        except Exception as e:
+            if self.debug:
+                print(f"[DEBUG] Failed to save project config: {e}")
 
     def _handle_model(self, args: str) -> bool:
         """Handle /model command - set both roles to same model or add new model."""
@@ -354,6 +448,12 @@ class AgentREPL:
         # Set both roles to this model
         self.config["roles"]["planner"] = model_name
         self.config["roles"]["coder"] = model_name
+        
+        # Sync with orchestrator
+        if self.orchestrator:
+            self.orchestrator.set_planner_role(model_name)
+            self.orchestrator.set_coder_role(model_name)
+            
         self._print_success(f"Both planner and coder now use: {model_name}")
 
         return True
@@ -708,6 +808,14 @@ class AgentREPL:
             self._print_error(f"Failed to load/init project: {project_path}")
             return True
 
+        # Change working directory to the project path
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(project_path)
+            self._print_info(f"Changed directory: {old_cwd} -> {project_path}")
+        except OSError as e:
+            self._print_warning(f"Could not change directory: {e}")
+
         # Update config with new project info
         self.config["project"] = {
             "name": self.project_manager.get_project_name(),
@@ -745,40 +853,87 @@ class AgentREPL:
         return True
 
     def _handle_projects(self, args: str) -> bool:
-        """Handle /projects command - list recent projects."""
+        """Handle /projects command - list recent projects with status."""
         if not self.project_manager:
             self._print_error("Project manager not available")
             return True
 
-        recent = self.project_manager.get_recent_projects(limit=10)
+        # Ensure current project is in recent list
         current = self.project_manager.get_current_project()
+        if current:
+            self.project_manager.add_to_recent_projects(current)
+
+        recent = self.project_manager.get_recent_projects(limit=10)
+
+        # If no recent projects but we have a current one, add it
+        if not recent and current:
+            recent = [current]
+
+        # Get current working directory
+        cwd = os.getcwd()
 
         if RICH_AVAILABLE and self.console:
-            table = Table(title="Recent Projects")
+            # Show current working directory
+            self.console.print(f"[dim]Current directory: {cwd}[/dim]\n")
+
+            table = Table(title="Projects")
             table.add_column("#", style="dim")
             table.add_column("Name", style="cyan")
             table.add_column("Path", style="white")
             table.add_column("Status", style="green")
+            table.add_column("Sessions", style="yellow")
 
             for i, path in enumerate(recent, 1):
                 name = os.path.basename(path)
-                status = "[current]" if path == current else ""
-                table.add_row(str(i), name, path, status)
+                is_current = path == current
+                is_cwd = os.path.abspath(path) == os.path.abspath(cwd)
+
+                # Status indicator
+                status_parts = []
+                if is_current:
+                    status_parts.append("[bold green]ACTIVE[/bold green]")
+                if is_cwd:
+                    status_parts.append("[cyan]CWD[/cyan]")
+                status = " ".join(status_parts)
+
+                # Try to get session count for this project
+                session_count = "-"
+                try:
+                    if self.project_manager.is_initialized(path):
+                        db_path = self.project_manager.get_session_db_path(path)
+                        if os.path.exists(db_path):
+                            import sqlite3
+                            conn = sqlite3.connect(db_path)
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT COUNT(*) FROM sessions")
+                            count = cursor.fetchone()[0]
+                            conn.close()
+                            session_count = str(count)
+                except Exception:
+                    pass
+
+                table.add_row(str(i), name, path, status, session_count)
 
             if not recent:
-                table.add_row("-", "No recent projects", "", "")
-
-            self.console.print(table)
-            self.console.print("\n[dim]Use /project <path> to switch projects[/dim]")
+                table.add_row("-", "No projects found", "", "", "")
+                self.console.print(table)
+                self.console.print("\n[dim]Use /project <path> to open or create a project[/dim]")
+            else:
+                self.console.print(table)
+                self.console.print("\n[dim]Use /project <path> to switch projects (also changes directory)[/dim]")
+                self.console.print("[dim]Use /history to view current project history[/dim]")
         else:
-            print("=== Recent Projects ===")
+            print(f"Current directory: {cwd}\n")
+            print("=== Projects ===")
             for i, path in enumerate(recent, 1):
                 name = os.path.basename(path)
-                status = " [current]" if path == current else ""
+                status = " [ACTIVE]" if path == current else ""
+                if os.path.abspath(path) == os.path.abspath(cwd):
+                    status += " [CWD]"
                 print(f"  {i}. {name}: {path}{status}")
 
             if not recent:
-                print("  No recent projects")
+                print("  No projects found")
 
             print("\nUse /project <path> to switch projects")
 
@@ -870,6 +1025,16 @@ class AgentREPL:
             table.add_column("Property", style="cyan")
             table.add_column("Value", style="green")
 
+            # Project info
+            if self.project_manager:
+                project_name = self.project_manager.get_project_name()
+                project_path = self.project_manager.get_current_project()
+                table.add_row("Project", f"[bold]{project_name}[/bold]")
+                table.add_row("Project Path", project_path or "Not set")
+
+            # Current working directory
+            table.add_row("Working Directory", os.getcwd())
+
             table.add_row("Current Session", self.current_session_id or "None")
             table.add_row("Planner Model", roles.get("planner", "not set"))
             table.add_row("Coder Model", roles.get("coder", "not set"))
@@ -884,6 +1049,10 @@ class AgentREPL:
 
             self.console.print(table)
         else:
+            if self.project_manager:
+                print(f"Project: {self.project_manager.get_project_name()}")
+                print(f"Project Path: {self.project_manager.get_current_project()}")
+            print(f"Working Directory: {os.getcwd()}")
             print(f"Current Session: {self.current_session_id or 'None'}")
             print(f"Planner: {roles.get('planner', 'not set')}")
             print(f"Coder: {roles.get('coder', 'not set')}")
@@ -891,16 +1060,106 @@ class AgentREPL:
         return True
 
     def _handle_history(self, args: str) -> bool:
-        """Handle /history command."""
-        if self.orchestrator and hasattr(self.orchestrator, 'memory'):
-            context = self.orchestrator.memory.get_context_for_prompt()
-            if RICH_AVAILABLE and self.console:
-                self.console.print(Panel(context, title="Command History"))
+        """
+        Handle /history command with project context.
+
+        Usage:
+            /history              - Show current project's recent history
+            /history <n>          - Show last n entries
+            /history <project>    - Show history for specific project
+        """
+        # Parse arguments
+        args = args.strip()
+        limit = 10
+        target_project = None
+
+        if args:
+            # Check if it's a number
+            if args.isdigit():
+                limit = int(args)
             else:
-                print("=== Command History ===")
-                print(context)
+                # Assume it's a project name/path
+                target_project = args
+
+        # Get project info
+        current_project = None
+        project_name = "unknown"
+        if self.project_manager:
+            current_project = self.project_manager.get_current_project()
+            project_name = self.project_manager.get_project_name()
+
+        if RICH_AVAILABLE and self.console:
+            # Show project context header
+            header_text = f"Project: [cyan]{project_name}[/cyan]"
+            if current_project:
+                header_text += f" ([dim]{current_project}[/dim])"
+
+            self.console.print(Panel(header_text, title="History Context", border_style="blue"))
+
+            # Get history entries
+            if self.orchestrator and hasattr(self.orchestrator, 'memory'):
+                entries = self.orchestrator.memory.get_recent_entries(limit=limit)
+
+                if entries:
+                    table = Table(title=f"Recent History (last {len(entries)} entries)")
+                    table.add_column("Step", style="dim", width=5)
+                    table.add_column("Command", style="cyan", max_width=40)
+                    table.add_column("Status", style="white", width=10)
+                    table.add_column("Reasoning", style="dim", max_width=30)
+
+                    for entry in entries:
+                        step = str(entry.get("step", "-"))
+                        command = entry.get("command", "")
+                        if len(command) > 40:
+                            command = command[:37] + "..."
+                        status = entry.get("status", "UNKNOWN")
+
+                        # Color status
+                        if status == "SUCCESS":
+                            status = f"[green]{status}[/green]"
+                        elif status == "FAILED":
+                            status = f"[red]{status}[/red]"
+                        elif status == "SKIPPED":
+                            status = f"[yellow]{status}[/yellow]"
+
+                        reasoning = entry.get("reasoning", "")
+                        if len(reasoning) > 30:
+                            reasoning = reasoning[:27] + "..."
+
+                        table.add_row(step, command, status, reasoning)
+
+                    self.console.print(table)
+                else:
+                    self.console.print("[dim]No history entries found[/dim]")
+
+                # Show session info if available
+                if self.current_session_id:
+                    self.console.print(f"\n[dim]Current session: {self.current_session_id}[/dim]")
+
+            else:
+                self.console.print("[dim]No history available[/dim]")
+
+            # Show help
+            self.console.print("\n[dim]Usage: /history [n] - Show last n entries[/dim]")
+
         else:
-            self._print_info("No history available")
+            # Fallback without rich
+            print(f"=== History for {project_name} ===")
+
+            if self.orchestrator and hasattr(self.orchestrator, 'memory'):
+                entries = self.orchestrator.memory.get_recent_entries(limit=limit)
+
+                if entries:
+                    for entry in entries:
+                        step = entry.get("step", "-")
+                        command = entry.get("command", "")[:50]
+                        status = entry.get("status", "UNKNOWN")
+                        print(f"  [{step}] {status}: {command}")
+                else:
+                    print("  No history entries")
+            else:
+                print("  No history available")
+
         return True
 
     def _handle_config(self, args: str) -> bool:
@@ -977,8 +1236,8 @@ class AgentREPL:
     def _save_config(self):
         """Save current config to file."""
         try:
-            with open(self.config_path, 'w') as f:
-                yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
         except Exception as e:
             self._print_error(f"Failed to save config: {e}")
 
@@ -1039,9 +1298,86 @@ class AgentREPL:
         self.token_usage[model_name]["input"] += input_tokens
         self.token_usage[model_name]["output"] += output_tokens
 
+    def _format_event_message(self, event: AgentEvent) -> str:
+        """Format an event for display."""
+        role_label = ROLE_LABELS.get(event.event_type, "[AGENT]")
+        _, color = EVENT_STYLES.get(event.event_type, ("", "white"))
+
+        # Format based on event type
+        if event.event_type == EventType.PLANNER_RESPONSE:
+            thought = event.data.get("thought", "")
+            command = event.data.get("command", "")
+            if thought:
+                return f"{role_label} Thought: {thought[:80]}..."
+            return f"{role_label} {event.message}"
+
+        elif event.event_type == EventType.FILE_CREATE:
+            return f"{role_label} Creating: {event.data.get('file', 'unknown')}"
+
+        elif event.event_type == EventType.FILE_MODIFY:
+            return f"{role_label} Modifying: {event.data.get('file', 'unknown')}"
+
+        elif event.event_type == EventType.EXECUTOR_START:
+            cmd = event.data.get("command", "")
+            if len(cmd) > 60:
+                cmd = cmd[:60] + "..."
+            return f"{role_label} Executing: {cmd}"
+
+        elif event.event_type == EventType.TASK_SUMMARY:
+            return ""  # Handle separately
+
+        return f"{role_label} {event.message}"
+
+    def _print_task_summary(self, summary: dict):
+        """Print a formatted task summary."""
+        if not RICH_AVAILABLE or not self.console:
+            print("\n=== Task Summary ===")
+            print(f"Status: {summary.get('status', 'UNKNOWN')}")
+            print(f"Steps: {summary.get('total_steps', 0)}")
+            if summary.get('files_created'):
+                print(f"Files created: {', '.join(summary['files_created'])}")
+            return
+
+        # Create summary table
+        table = Table(title="Task Summary", show_header=False, box=None)
+        table.add_column("Key", style="cyan")
+        table.add_column("Value", style="white")
+
+        status = summary.get("status", "UNKNOWN")
+        status_style = "green" if status == "COMPLETED" else "red"
+
+        table.add_row("Status", f"[{status_style}]{status}[/{status_style}]")
+        table.add_row("Total Steps", str(summary.get("total_steps", 0)))
+        table.add_row("Successful", f"[green]{summary.get('successful_steps', 0)}[/green]")
+
+        if summary.get("failed_steps", 0) > 0:
+            table.add_row("Failed", f"[red]{summary['failed_steps']}[/red]")
+
+        if summary.get("files_created"):
+            files = ", ".join(summary["files_created"][:5])
+            if len(summary["files_created"]) > 5:
+                files += f" (+{len(summary['files_created']) - 5} more)"
+            table.add_row("Files Created", f"[green]{files}[/green]")
+
+        if summary.get("files_modified"):
+            files = ", ".join(summary["files_modified"][:5])
+            table.add_row("Files Modified", f"[yellow]{files}[/yellow]")
+
+        if summary.get("total_lines_written", 0) > 0:
+            table.add_row("Lines Written", f"~{summary['total_lines_written']}")
+
+        duration = summary.get("duration_seconds", 0)
+        table.add_row("Duration", f"{duration:.1f}s")
+
+        if summary.get("error_message"):
+            table.add_row("Error", f"[red]{summary['error_message']}[/red]")
+
+        self.console.print()
+        self.console.print(Panel(table, border_style="blue"))
+
     def run_task(self, task_description: str):
         """
-        Run a task through the orchestrator.
+        Run a task through the orchestrator with real-time progress display.
 
         Args:
             task_description: The task to execute
@@ -1052,72 +1388,215 @@ class AgentREPL:
 
         self.session_start_time = time.time()
 
-        # Show thinking spinner
+        # Reset event emitter for fresh task
+        reset_event_emitter()
+        event_emitter = get_event_emitter()
+
+        # State tracking
+        event_log: List[str] = []
+        current_step = 0
+        current_status = "STARTING"
+        current_thought = ""
+        current_command = ""
+        task_summary = None
+        total_input_tokens = 0
+        total_output_tokens = 0
+        lock = threading.Lock()
+
+        def on_event(event: AgentEvent):
+            nonlocal current_step, current_status, task_summary
+            nonlocal current_thought, current_command
+            nonlocal total_input_tokens, total_output_tokens
+
+            with lock:
+                # Update current step
+                if event.step > 0:
+                    current_step = event.step
+
+                # Track token usage
+                if event.event_type == EventType.TOKEN_USAGE:
+                    model = event.data.get("model", "unknown")
+                    input_tokens = event.data.get("input_tokens", 0)
+                    output_tokens = event.data.get("output_tokens", 0)
+                    total_input_tokens += input_tokens
+                    total_output_tokens += output_tokens
+                    self.add_token_usage(model, input_tokens, output_tokens)
+
+                # Update status and capture details
+                if event.event_type == EventType.PLANNER_THINKING:
+                    current_status = "THINKING"
+                elif event.event_type == EventType.PLANNER_RESPONSE:
+                    current_thought = event.data.get("thought", "")[:80]
+                    current_command = event.data.get("command", "")
+                elif event.event_type == EventType.EXECUTOR_START:
+                    current_status = "EXECUTING"
+                    current_command = event.data.get("command", "")
+                elif event.event_type == EventType.EXECUTOR_RUNNING:
+                    current_status = "RUNNING"
+                elif event.event_type == EventType.OBSERVER_RESULT:
+                    current_status = "OBSERVING"
+                elif event.event_type == EventType.AGENT_COMPLETE:
+                    current_status = event.data.get("status", "COMPLETED")
+                elif event.event_type == EventType.AGENT_ERROR:
+                    current_status = "ERROR"
+                elif event.event_type == EventType.TASK_SUMMARY:
+                    task_summary = event.data.get("summary", {})
+
+                # Format and add to log
+                msg = self._format_event_message(event)
+                if msg:
+                    event_log.append(msg)
+                    # Keep only last 20 events
+                    if len(event_log) > 20:
+                        event_log.pop(0)
+
+        # Subscribe to all events
+        event_emitter.on_all(on_event)
+
         if RICH_AVAILABLE and self.console:
-            with Live(
-                Panel(Spinner("dots", text="Thinking..."), title="Agent"),
-                console=self.console,
-                refresh_per_second=10
-            ) as live:
-                # Create and start task
-                self.current_session_id = self.orchestrator.create_task(task_description)
+            # Create and start task
+            self.current_session_id = self.orchestrator.create_task(task_description)
 
-                # Update display
-                live.update(Panel(
-                    Spinner("dots", text=f"Executing: {task_description[:50]}..."),
-                    title=f"Session: {self.current_session_id}"
-                ))
+            # Run in background thread
+            task_thread = threading.Thread(
+                target=self.orchestrator.run_loop,
+                args=(self.current_session_id,),
+                daemon=True
+            )
+            task_thread.start()
 
-                # Run in background thread
-                task_thread = threading.Thread(
-                    target=self.orchestrator.run_loop,
-                    args=(self.current_session_id,),
-                    daemon=True
-                )
-                task_thread.start()
+            # Get cost rates from config
+            models_config = self.config.get("models", {})
 
-                # Monitor progress
+            # Live display with progress
+            with Live(console=self.console, refresh_per_second=4, transient=False) as live:
                 while task_thread.is_alive():
-                    status = self.orchestrator.get_session_status(self.current_session_id)
-                    logs = self.orchestrator.get_session_logs(self.current_session_id)
+                    with lock:
+                        elapsed = time.time() - self.session_start_time
 
-                    # Update live display
-                    display_text = f"Status: {status}\n\n"
-                    if logs:
-                        display_text += logs[-500:]
+                        # Calculate estimated cost
+                        total_cost = 0.0
+                        for model_name, usage in self.token_usage.items():
+                            model_conf = models_config.get(model_name, {})
+                            cost_in = model_conf.get("cost_input", 0)
+                            cost_out = model_conf.get("cost_output", 0)
+                            total_cost += (usage["input"] / 1_000_000) * cost_in
+                            total_cost += (usage["output"] / 1_000_000) * cost_out
 
-                    live.update(Panel(
-                        Text(display_text),
-                        title=f"Session: {self.current_session_id}"
-                    ))
+                        # Build header
+                        header = Text()
+                        header.append("Task: ", style="bold")
+                        task_display = task_description[:55] + "..." if len(task_description) > 55 else task_description
+                        header.append(f"{task_display}\n", style="white")
 
-                    time.sleep(0.2)
+                        # Status line with indicators
+                        status_color = {
+                            "THINKING": "magenta",
+                            "EXECUTING": "blue",
+                            "RUNNING": "yellow",
+                            "OBSERVING": "cyan",
+                            "COMPLETED": "green",
+                            "ERROR": "red",
+                        }.get(current_status, "white")
+
+                        status_icon = {
+                            "THINKING": "🧠",
+                            "EXECUTING": "⚙️",
+                            "RUNNING": "▶️",
+                            "OBSERVING": "👁️",
+                            "COMPLETED": "✅",
+                            "ERROR": "❌",
+                        }.get(current_status, "⏳")
+
+                        header.append(f"\n{status_icon} ", style=status_color)
+                        header.append(f"Step {current_step}", style="cyan bold")
+                        header.append(f" | ", style="dim")
+                        header.append(f"{current_status}", style=status_color)
+
+                        # Show current thought/command
+                        if current_thought and current_status == "THINKING":
+                            header.append(f"\n💭 ", style="magenta")
+                            header.append(f"{current_thought}...", style="dim magenta")
+
+                        if current_command and current_status in ("EXECUTING", "RUNNING"):
+                            cmd_display = current_command[:60] + "..." if len(current_command) > 60 else current_command
+                            header.append(f"\n⚡ ", style="blue")
+                            header.append(f"{cmd_display}", style="dim blue")
+
+                        # Event log
+                        log_text = Text()
+                        log_text.append("\n─── Activity Log ───\n", style="dim")
+                        for msg in event_log[-8:]:
+                            if "[PLANNER]" in msg:
+                                log_text.append(msg + "\n", style="magenta")
+                            elif "[EXECUTOR]" in msg:
+                                log_text.append(msg + "\n", style="blue")
+                            elif "[OBSERVER]" in msg:
+                                log_text.append(msg + "\n", style="cyan")
+                            elif "[FILE]" in msg:
+                                log_text.append(msg + "\n", style="green")
+                            elif "[AGENT]" in msg:
+                                log_text.append(msg + "\n", style="bold white")
+                            else:
+                                log_text.append(msg + "\n", style="white")
+
+                        # Footer with stats
+                        footer = Text()
+                        footer.append("\n─────────────────────────────────────────────────\n", style="dim")
+                        footer.append(f"⏱️  {elapsed:.1f}s", style="cyan")
+                        footer.append(f"  |  ", style="dim")
+                        footer.append(f"🪙 {total_input_tokens}/{total_output_tokens} tokens", style="yellow")
+                        footer.append(f"  |  ", style="dim")
+                        footer.append(f"💰 ${total_cost:.4f}", style="green")
+
+                        # Combine into panel
+                        content = Group(header, log_text, footer)
+                        live.update(Panel(
+                            content,
+                            title=f"[bold]Session: {self.current_session_id}[/bold]",
+                            subtitle=f"[dim]Press Ctrl+C to interrupt[/dim]",
+                            border_style="blue"
+                        ))
+
+                    time.sleep(0.25)
 
             # Show final result
             final_status = self.orchestrator.get_session_status(self.current_session_id)
-            final_logs = self.orchestrator.get_session_logs(self.current_session_id)
 
+            self.console.print()
             if final_status in ("COMPLETED", "EXITED"):
                 self._print_success(f"Task completed: {final_status}")
             else:
                 self._print_warning(f"Task ended: {final_status}")
 
-            if final_logs:
-                self.console.print(Panel(final_logs[-1000:], title="Output"))
+            # Show task summary if available
+            if task_summary:
+                self._print_task_summary(task_summary)
 
         else:
-            # Fallback without rich
+            # Fallback without rich - still show events
+            def print_event(event: AgentEvent):
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                msg = self._format_event_message(event)
+                if msg:
+                    print(f"[{timestamp}] {msg}")
+                if event.event_type == EventType.TASK_SUMMARY:
+                    summary = event.data.get("summary", {})
+                    print("\n=== Task Summary ===")
+                    print(f"Status: {summary.get('status', 'UNKNOWN')}")
+                    print(f"Steps: {summary.get('total_steps', 0)}")
+                    if summary.get('files_created'):
+                        print(f"Files: {', '.join(summary['files_created'])}")
+
+            event_emitter.on_all(print_event)
+
             print(f"Starting task: {task_description}")
             self.current_session_id = self.orchestrator.create_task(task_description)
             self.orchestrator.run_loop(self.current_session_id)
 
+            elapsed = time.time() - self.session_start_time
             final_status = self.orchestrator.get_session_status(self.current_session_id)
-            final_logs = self.orchestrator.get_session_logs(self.current_session_id)
-
-            print(f"Status: {final_status}")
-            if final_logs:
-                print("Output:")
-                print(final_logs[-1000:])
+            print(f"\nFinal Status: {final_status} (elapsed: {elapsed:.1f}s)")
 
     def get_prompt(self) -> str:
         """Get the prompt string with project and role info."""
@@ -1134,7 +1613,7 @@ class AgentREPL:
             project_name = self.project_manager.get_project_name()
 
         # Format: [Proj: <name>] [Planner: <model> | Coder: <model>]
-        return f"[Proj: {project_name}] [Planner: {planner[:12]} | Coder: {coder[:12]}] ❯ "
+        return f"[Proj: {project_name}] [Planner: {planner[:24]} | Coder: {coder[:24]}] ❯ "
 
     def get_bottom_toolbar(self):
         """Get the bottom toolbar text."""

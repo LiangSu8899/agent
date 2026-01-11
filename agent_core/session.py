@@ -174,6 +174,26 @@ class SessionManager:
                 session.start()
                 self._update_db(session)
 
+    def complete_session(self, session_id: str):
+        """Mark a session as completed."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session:
+                session.status = SessionStatus.COMPLETED
+                if session.terminal:
+                    session.terminal.terminate()
+                self._update_db(session)
+
+    def fail_session(self, session_id: str):
+        """Mark a session as failed."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session:
+                session.status = SessionStatus.FAILED
+                if session.terminal:
+                    session.terminal.terminate()
+                self._update_db(session)
+
     def pause_session(self, session_id: str):
         """Pause a running session."""
         with self._lock:

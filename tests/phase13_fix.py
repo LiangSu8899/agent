@@ -56,9 +56,9 @@ class TestConfigLoadingPriority(unittest.TestCase):
         with open(config_path, 'w') as f:
             yaml.dump(custom_config, f)
 
-        # Load config
-        cm = ConfigManager(global_dir=self.global_dir)
-        config = cm.load_global_config()
+        # Load config - use cwd to avoid loading from actual cwd
+        cm = ConfigManager(global_dir=self.global_dir, cwd=self.test_dir)
+        config = cm.load_config()
 
         # Custom models should be present
         self.assertIn("my-custom-model", config.get("models", {}))
@@ -98,9 +98,9 @@ class TestConfigLoadingPriority(unittest.TestCase):
         with open(config_path, 'w') as f:
             yaml.dump(custom_config, f)
 
-        # Load config
-        cm = ConfigManager(global_dir=self.global_dir)
-        config = cm.load_global_config()
+        # Load config - use cwd to avoid loading from actual cwd
+        cm = ConfigManager(global_dir=self.global_dir, cwd=self.test_dir)
+        config = cm.load_config()
 
         # File values should take priority
         model = config["models"]["deepseek-v3"]
@@ -126,9 +126,9 @@ class TestConfigLoadingPriority(unittest.TestCase):
         with open(config_path, 'w') as f:
             yaml.dump(minimal_config, f)
 
-        # Load config
-        cm = ConfigManager(global_dir=self.global_dir)
-        config = cm.load_global_config()
+        # Load config - use cwd to avoid loading from actual cwd
+        cm = ConfigManager(global_dir=self.global_dir, cwd=self.test_dir)
+        config = cm.load_config()
 
         # Custom model should be present
         self.assertIn("my-model", config.get("models", {}))
@@ -138,36 +138,44 @@ class TestConfigLoadingPriority(unittest.TestCase):
         self.assertIn("session", config)
         self.assertIn("security", config)
 
-    def test_mock_only_config_upgraded(self):
-        """Test that mock-only configs are still upgraded."""
-        print("[4] Testing mock-only config upgrade...")
+    def test_config_merges_with_defaults(self):
+        """Test that config merges with defaults (file values take priority)."""
+        print("[4] Testing config merges with defaults...")
 
-        # Create a mock-only config
+        # Create a config with only some models
         config_path = os.path.join(self.global_dir, "config.yaml")
-        mock_config = {
+        partial_config = {
             "models": {
-                "mock": {
-                    "type": "mock",
-                    "cost_input": 0,
-                    "cost_output": 0
+                "my-custom": {
+                    "type": "openai",
+                    "api_base": "https://my-api.com",
+                    "cost_input": 1.0,
+                    "cost_output": 2.0
                 }
             },
             "roles": {
-                "planner": "mock",
-                "coder": "mock"
+                "planner": "my-custom",
+                "coder": "my-custom"
             }
         }
 
         with open(config_path, 'w') as f:
-            yaml.dump(mock_config, f)
+            yaml.dump(partial_config, f)
 
-        # Load config
-        cm = ConfigManager(global_dir=self.global_dir)
-        config = cm.load_global_config()
+        # Load config - use cwd to avoid loading from actual cwd
+        cm = ConfigManager(global_dir=self.global_dir, cwd=self.test_dir)
+        config = cm.load_config()
 
-        # Should have production models added
+        # Custom model should be present
+        self.assertIn("my-custom", config.get("models", {}))
+
+        # Default models should also be present (merged)
         self.assertIn("deepseek-v3", config.get("models", {}))
-        self.assertIn("glm-4-plus", config.get("models", {}))
+        self.assertIn("gpt-4o", config.get("models", {}))
+
+        # Custom roles should be preserved
+        self.assertEqual(config["roles"]["planner"], "my-custom")
+        self.assertEqual(config["roles"]["coder"], "my-custom")
 
 
 class TestNaturalLanguageEntryPoint(unittest.TestCase):

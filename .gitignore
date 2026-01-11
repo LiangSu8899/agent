@@ -1,1 +1,10 @@
 .vscode/
+.agent/
+.agent_os/
+config.yaml
+*.db
+*.log
+__pycache__/
+*.pyc
+venv/
+.env

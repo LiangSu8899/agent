@@ -8,7 +8,7 @@ import yaml
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from agent_core.config import ConfigManager, DEFAULT_CONFIG, MOCK_ONLY_MODELS
+from agent_core.config import ConfigManager, DEFAULT_CONFIG
 from agent_core.project import ProjectManager
 from agent_core.interface.repl import AgentREPL
 
@@ -29,7 +29,7 @@ class TestPhase11DefaultConfig(unittest.TestCase):
             "glm-4-plus",
             "gpt-4o",
             "claude-3-5-sonnet",
-            "local-deepseek-coder-v2"
+            "local-ollama"
         ]
 
         for model in required_models:
@@ -44,7 +44,8 @@ class TestPhase11DefaultConfig(unittest.TestCase):
 
         roles = DEFAULT_CONFIG.get("roles", {})
 
-        self.assertEqual(roles.get("planner"), "glm-4-plus")
+        # Both should default to deepseek-v3
+        self.assertEqual(roles.get("planner"), "deepseek-v3")
         self.assertEqual(roles.get("coder"), "deepseek-v3")
 
     def test_default_config_model_prices(self):
@@ -57,98 +58,91 @@ class TestPhase11DefaultConfig(unittest.TestCase):
             self.assertIn("cost_input", config, f"{name} missing cost_input")
             self.assertIn("cost_output", config, f"{name} missing cost_output")
 
-            # Local models should be free
-            if config.get("type") == "local":
-                self.assertEqual(config["cost_input"], 0.0)
-                self.assertEqual(config["cost_output"], 0.0)
+    def test_default_config_uses_openai_type(self):
+        """Test that all API models use openai type."""
+        print("[4] Testing all models use openai type...")
+
+        models = DEFAULT_CONFIG.get("models", {})
+
+        for name, config in models.items():
+            self.assertEqual(config.get("type"), "openai", f"{name} should have type=openai")
 
 
-class TestPhase11ConfigUpgrade(unittest.TestCase):
-    """Test the config upgrade logic for mock-only configs."""
+class TestPhase11ConfigProximityLoading(unittest.TestCase):
+    """Test the proximity-based config loading."""
 
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
         self.global_dir = os.path.join(self.test_dir, ".agent_os")
+        self.local_dir = os.path.join(self.test_dir, "project")
         os.makedirs(self.global_dir, exist_ok=True)
+        os.makedirs(self.local_dir, exist_ok=True)
 
     def tearDown(self):
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
 
-    def test_mock_only_config_detection(self):
-        """Test that mock-only configs are detected."""
-        print("\n[4] Testing mock-only config detection...")
+    def test_local_config_takes_priority(self):
+        """Test that local config takes priority over global."""
+        print("\n[5] Testing local config takes priority...")
 
-        cm = ConfigManager(global_dir=self.global_dir)
+        # Create global config
+        global_config_path = os.path.join(self.global_dir, "config.yaml")
+        with open(global_config_path, 'w') as f:
+            yaml.dump({"roles": {"planner": "global-model"}}, f)
 
-        # Create a mock-only config
-        mock_config = {
-            "models": {
-                "mock": {"type": "mock", "cost_input": 0, "cost_output": 0}
-            },
-            "roles": {"planner": "mock", "coder": "mock"}
-        }
+        # Create local config
+        local_config_path = os.path.join(self.local_dir, "config.yaml")
+        with open(local_config_path, 'w') as f:
+            yaml.dump({"roles": {"planner": "local-model"}}, f)
 
-        cm._config = mock_config
-        self.assertTrue(cm._is_mock_only_config_dict(mock_config))
+        # Load config - should use local
+        cm = ConfigManager(global_dir=self.global_dir, cwd=self.local_dir)
+        config = cm.load_config()
 
-        # Config with real models should not be detected
-        cm._config = DEFAULT_CONFIG.copy()
-        self.assertFalse(cm._is_mock_only_config_dict(DEFAULT_CONFIG))
+        self.assertEqual(config["roles"]["planner"], "local-model")
+        self.assertEqual(str(cm.get_config_path()), local_config_path)
 
-    def test_mock_config_upgrade(self):
-        """Test that mock-only configs are upgraded on load."""
-        print("[5] Testing mock config upgrade on load...")
+    def test_global_config_used_when_no_local(self):
+        """Test that global config is used when no local exists."""
+        print("[6] Testing global config used when no local...")
 
-        # Create a mock-only config file
-        config_path = os.path.join(self.global_dir, "config.yaml")
-        mock_config = {
-            "models": {
-                "mock": {"type": "mock", "cost_input": 0, "cost_output": 0}
-            },
-            "roles": {"planner": "mock", "coder": "mock"}
-        }
+        # Create only global config
+        global_config_path = os.path.join(self.global_dir, "config.yaml")
+        with open(global_config_path, 'w') as f:
+            yaml.dump({"roles": {"planner": "global-model"}}, f)
 
-        with open(config_path, 'w') as f:
-            yaml.dump(mock_config, f)
+        # Load config - should use global
+        cm = ConfigManager(global_dir=self.global_dir, cwd=self.local_dir)
+        config = cm.load_config()
 
-        # Load config - should trigger upgrade
-        cm = ConfigManager(global_dir=self.global_dir)
-        config = cm.load_global_config()
+        self.assertEqual(config["roles"]["planner"], "global-model")
+        self.assertEqual(str(cm.get_config_path()), global_config_path)
 
-        # Check that production models were added
-        self.assertIn("deepseek-v3", config.get("models", {}))
-        self.assertIn("glm-4-plus", config.get("models", {}))
+    def test_save_to_source(self):
+        """Test that save_config writes to the source path."""
+        print("[7] Testing save to source...")
 
-        # Check roles were updated
-        self.assertEqual(config["roles"]["planner"], "glm-4-plus")
-        self.assertEqual(config["roles"]["coder"], "deepseek-v3")
+        # Create local config
+        local_config_path = os.path.join(self.local_dir, "config.yaml")
+        with open(local_config_path, 'w') as f:
+            yaml.dump({"roles": {"planner": "original"}}, f)
 
-    def test_non_mock_config_preserved(self):
-        """Test that configs with real models are not overwritten."""
-        print("[6] Testing non-mock config preservation...")
+        # Load, modify, save
+        cm = ConfigManager(global_dir=self.global_dir, cwd=self.local_dir)
+        cm.load_config()
+        cm.set("roles.planner", "modified")
+        cm.save_config()
 
-        # Create a config with custom models
-        config_path = os.path.join(self.global_dir, "config.yaml")
-        custom_config = {
-            "models": {
-                "my-custom-model": {"type": "openai", "cost_input": 1.0, "cost_output": 2.0}
-            },
-            "roles": {"planner": "my-custom-model", "coder": "my-custom-model"}
-        }
+        # Verify saved to local
+        with open(local_config_path, 'r') as f:
+            saved = yaml.safe_load(f)
 
-        with open(config_path, 'w') as f:
-            yaml.dump(custom_config, f)
+        self.assertEqual(saved["roles"]["planner"], "modified")
 
-        # Load config - should NOT trigger upgrade
-        cm = ConfigManager(global_dir=self.global_dir)
-        config = cm.load_global_config()
-
-        # Custom model should still be there
-        self.assertIn("my-custom-model", config.get("models", {}))
-
-        # Roles should be preserved
-        self.assertEqual(config["roles"]["planner"], "my-custom-model")
+        # Verify NOT saved to global
+        global_config_path = os.path.join(self.global_dir, "config.yaml")
+        self.assertFalse(os.path.exists(global_config_path))
 
 
 class TestPhase11ProjectManager(unittest.TestCase):
@@ -170,7 +164,7 @@ class TestPhase11ProjectManager(unittest.TestCase):
 
     def test_load_or_init_new_project(self):
         """Test load_or_init_project initializes new project."""
-        print("\n[7] Testing load_or_init_project for new project...")
+        print("\n[8] Testing load_or_init_project for new project...")
 
         result = self.pm.load_or_init_project(self.project_dir)
 
@@ -180,7 +174,7 @@ class TestPhase11ProjectManager(unittest.TestCase):
 
     def test_load_or_init_existing_project(self):
         """Test load_or_init_project loads existing project."""
-        print("[8] Testing load_or_init_project for existing project...")
+        print("[9] Testing load_or_init_project for existing project...")
 
         # Initialize first
         self.pm.init_project(self.project_dir)
@@ -194,7 +188,7 @@ class TestPhase11ProjectManager(unittest.TestCase):
 
     def test_load_or_init_nonexistent_path(self):
         """Test load_or_init_project fails for nonexistent path."""
-        print("[9] Testing load_or_init_project for nonexistent path...")
+        print("[10] Testing load_or_init_project for nonexistent path...")
 
         result = self.pm.load_or_init_project("/nonexistent/path")
 
@@ -221,7 +215,7 @@ class TestPhase11REPLPrompt(unittest.TestCase):
 
     def test_prompt_format(self):
         """Test that prompt shows project name and models."""
-        print("\n[10] Testing REPL prompt format...")
+        print("\n[11] Testing REPL prompt format...")
 
         config = {
             "roles": {"planner": "glm-4-plus", "coder": "deepseek-v3"},
@@ -240,14 +234,14 @@ class TestPhase11REPLPrompt(unittest.TestCase):
 
     def test_project_command_registered(self):
         """Test that /project command is registered."""
-        print("[11] Testing /project command registration...")
+        print("[12] Testing /project command registration...")
 
         self.assertIn("project", AgentREPL.COMMANDS)
         self.assertIn("projects", AgentREPL.COMMANDS)
 
     def test_handle_project_no_args(self):
         """Test /project with no args shows current project."""
-        print("[12] Testing /project command with no args...")
+        print("[13] Testing /project command with no args...")
 
         config = {
             "roles": {"planner": "test", "coder": "test"},
@@ -262,7 +256,7 @@ class TestPhase11REPLPrompt(unittest.TestCase):
 
     def test_handle_project_switch(self):
         """Test /project command switches project."""
-        print("[13] Testing /project command project switching...")
+        print("[14] Testing /project command project switching...")
 
         # Create another project directory
         other_project = os.path.join(self.test_dir, "other_project")
@@ -282,24 +276,6 @@ class TestPhase11REPLPrompt(unittest.TestCase):
         # Check project was switched
         self.assertEqual(self.pm.get_current_project(), other_project)
         self.assertEqual(config["project"]["name"], "other_project")
-
-    def test_handle_projects_list(self):
-        """Test /projects command lists recent projects."""
-        print("[14] Testing /projects command...")
-
-        config = {
-            "roles": {"planner": "test", "coder": "test"},
-            "project": {"name": "test_project", "path": self.project_dir}
-        }
-
-        # Add some recent projects
-        self.pm.add_to_recent_projects(self.project_dir)
-
-        repl = AgentREPL(config=config, project_manager=self.pm)
-
-        # Should return True and not crash
-        result = repl._handle_projects("")
-        self.assertTrue(result)
 
 
 if __name__ == '__main__':

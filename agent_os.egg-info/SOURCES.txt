@@ -4,7 +4,9 @@ setup.py
 agent_core/__init__.py
 agent_core/agent.py
 agent_core/cli.py
+agent_core/completion.py
 agent_core/config.py
+agent_core/events.py
 agent_core/orchestrator.py
 agent_core/project.py
 agent_core/security.py
@@ -37,3 +39,8 @@ agent_os.egg-info/not-zip-safe
 agent_os.egg-info/requires.txt
 agent_os.egg-info/top_level.txt
 sandbox_test/app.py
+tests/test_glm_e2e.py
+tests/test_glm_fix.py
+tests/test_token_tracking.py
+tests/test_ux_improvements.py
+tests/test_verification.py

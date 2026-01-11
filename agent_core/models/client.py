@@ -3,7 +3,21 @@ Abstract base class for LLM clients.
 Supports local models (llama-cpp-python) and OpenAI-compatible APIs.
 """
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
+
+
+@dataclass
+class GenerationResult:
+    """Result of a generation call, including token usage."""
+    content: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    model_name: str = ""
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
 
 
 class LLMClient(ABC):
@@ -40,6 +54,29 @@ class LLMClient(ABC):
             Generated text response
         """
         pass
+
+    def generate_with_usage(self, prompt: str, **kwargs) -> GenerationResult:
+        """
+        Generate a response and return token usage information.
+
+        Args:
+            prompt: The input prompt
+            **kwargs: Additional generation parameters
+
+        Returns:
+            GenerationResult with content and token usage
+        """
+        # Default implementation - subclasses should override for accurate token counting
+        content = self.generate(prompt, **kwargs)
+        # Estimate tokens (rough approximation: 1 token ≈ 4 characters)
+        input_tokens = len(prompt) // 4
+        output_tokens = len(content) // 4
+        return GenerationResult(
+            content=content,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            model_name=getattr(self, 'model_name', 'unknown')
+        )
 
 
 class MockLLMClient(LLMClient):
@@ -131,6 +168,9 @@ class OpenAICompatibleClient(LLMClient):
         self.model_name = model_name
         self.api_key = api_key
         self._loaded = False
+        # Track last generation's token usage
+        self._last_input_tokens = 0
+        self._last_output_tokens = 0
 
     def load(self) -> None:
         # For API-based clients, "loading" means verifying connectivity
@@ -142,25 +182,51 @@ class OpenAICompatibleClient(LLMClient):
     def is_loaded(self) -> bool:
         return self._loaded
 
+    def _is_glm_model(self) -> bool:
+        """Check if this is a GLM model."""
+        model_lower = self.model_name.lower()
+        base_lower = self.base_url.lower()
+        return any(x in model_lower or x in base_lower for x in ['glm', 'zhipu', 'bigmodel'])
+
     def generate(self, prompt: str, **kwargs) -> str:
+        """Generate response (for backward compatibility)."""
+        result = self.generate_with_usage(prompt, **kwargs)
+        return result.content
+
+    def generate_with_usage(self, prompt: str, **kwargs) -> GenerationResult:
+        """Generate response with token usage tracking."""
         if not self.is_loaded():
             raise RuntimeError("Client is not connected!")
 
         import urllib.request
         import json
 
-        max_tokens = kwargs.get('max_tokens', 512)
+        # Use higher max_tokens for GLM to avoid truncation
+        default_max_tokens = 2048 if self._is_glm_model() else 512
+        max_tokens = kwargs.get('max_tokens', default_max_tokens)
         temperature = kwargs.get('temperature', 0.7)
+
+        # Build messages - use system message for GLM models
+        messages = []
+
+        if self._is_glm_model():
+            # For GLM models, add a system message to enforce JSON output
+            messages.append({
+                "role": "system",
+                "content": "You are a JSON-only response agent. Output ONLY valid JSON with no markdown, no code blocks, no explanations. Your entire response must be parseable by json.loads(). Keep commands SHORT and SIMPLE - do not include multi-line scripts in the command field."
+            })
+
+        messages.append({"role": "user", "content": prompt})
 
         data = {
             "model": self.model_name,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature
         }
 
         req = urllib.request.Request(
-            f"{self.base_url}/v1/chat/completions",
+            f"{self.base_url}/chat/completions",
             data=json.dumps(data).encode('utf-8'),
             headers={
                 "Content-Type": "application/json",
@@ -170,4 +236,27 @@ class OpenAICompatibleClient(LLMClient):
 
         with urllib.request.urlopen(req) as response:
             result = json.loads(response.read().decode('utf-8'))
-            return result['choices'][0]['message']['content']
+
+            content = result['choices'][0]['message']['content']
+
+            # Extract token usage from response
+            usage = result.get('usage', {})
+            input_tokens = usage.get('prompt_tokens', 0)
+            output_tokens = usage.get('completion_tokens', 0)
+
+            # If API doesn't return usage, estimate
+            if input_tokens == 0:
+                input_tokens = len(prompt) // 4
+            if output_tokens == 0:
+                output_tokens = len(content) // 4
+
+            # Store for later access
+            self._last_input_tokens = input_tokens
+            self._last_output_tokens = output_tokens
+
+            return GenerationResult(
+                content=content,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model_name=self.model_name
+            )

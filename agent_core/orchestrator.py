@@ -28,7 +28,8 @@ class AgentOrchestrator:
         self,
         db_path: str = "sessions.db",
         config: Optional[Dict[str, Any]] = None,
-        headless: bool = False
+        headless: bool = False,
+        debug: bool = False
     ):
         """
         Initialize the AgentOrchestrator.
@@ -37,9 +38,11 @@ class AgentOrchestrator:
             db_path: Path to the SQLite database for sessions
             config: Configuration dictionary with models, workspace settings
             headless: If True, run in non-interactive mode (for testing)
+            debug: If True, enable debug mode (print raw LLM outputs)
         """
         self.config = config or {}
         self.headless = headless
+        self.debug = debug
         self.db_path = db_path
 
         # Extract config sections
@@ -70,6 +73,14 @@ class AgentOrchestrator:
         self._stop_events: Dict[str, threading.Event] = {}
         self._lock = threading.Lock()
 
+    def set_planner_role(self, model_name: str):
+        """Update the planner model role."""
+        self.planner_model = model_name
+
+    def set_coder_role(self, model_name: str):
+        """Update the coder model role."""
+        self.coder_model = model_name
+
     def create_task(self, task_description: str) -> str:
         """
         Create a new task/session with a DebugAgent.
@@ -99,7 +110,8 @@ class AgentOrchestrator:
             classifier=self.classifier,
             safety_policy=self.safety_policy,
             max_steps=self.max_steps,
-            planner_model=self.planner_model
+            planner_model=self.planner_model,
+            debug=self.debug
         )
 
         with self._lock:
@@ -137,14 +149,13 @@ class AgentOrchestrator:
         task_description = session_info.get("task", "")
         is_nl_task = session_info.get("is_natural_language", False)
 
-        # Start the session
-        self.session_manager.start_session(session_id)
-
         if is_nl_task and agent:
             # Natural language task: use the DebugAgent
             self._run_agent_loop(session_id, agent, task_description, stop_event)
         else:
             # Legacy behavior: direct command execution monitoring
+            # Start the session only for direct execution
+            self.session_manager.start_session(session_id)
             self._run_legacy_loop(session_id, stop_event, max_iterations)
 
     def _run_agent_loop(
@@ -164,6 +175,9 @@ class AgentOrchestrator:
             stop_event: Event to signal stop
         """
         try:
+            # Add a start log to the session so it's not empty
+            self.session_manager._sessions[session_id]._append_log(f"\n[AGENT] Starting goal: {task_description}\n")
+            
             # Run the agent with the initial goal
             results = agent.run(initial_goal=task_description)
 
@@ -184,9 +198,16 @@ class AgentOrchestrator:
 
         except Exception as e:
             # Log the error
+            print(f"[Orchestrator] Error in agent loop: {e}")
+            import traceback
+            traceback.print_exc()
+            
             with self._lock:
                 if session_id in self._active_sessions:
                     self._active_sessions[session_id]["error"] = str(e)
+            
+            # Append error to session logs for visibility in REPL
+            self.session_manager._sessions[session_id]._append_log(f"\n[ERROR] {str(e)}\n")
             self.session_manager.fail_session(session_id)
 
     def _run_legacy_loop(

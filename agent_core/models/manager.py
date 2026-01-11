@@ -42,24 +42,39 @@ class ModelManager:
         Returns:
             LLMClient instance
         """
-        model_type = conf.get("type", "mock")
-
-        if model_type == "mock":
+        model_type = conf.get("type", "mock").lower()
+        api_key = conf.get("api_key", "not-needed")
+        
+        # Support various aliases for OpenAI-compatible clients
+        if model_type in ["mock"]:
             vram = conf.get("vram", 8)
             return MockLLMClient(name, vram)
 
-        elif model_type == "llama-cpp":
+        elif model_type in ["llama-cpp", "local"] and "path" in conf:
             return LlamaCppClient(
-                model_path=conf["model_path"],
+                model_path=conf["path"],
                 n_ctx=conf.get("n_ctx", 4096),
                 n_gpu_layers=conf.get("n_gpu_layers", -1)
             )
 
-        elif model_type == "openai-compatible":
+        elif model_type in ["openai", "openai-compatible", "deepseek", "zhipu", "anthropic", "local"]:
+            # Handle parameter mapping: api_base vs base_url
+            api_base = conf.get("api_base") or conf.get("base_url")
+            
+            # For "local" type with api_base (like Ollama), use OpenAICompatibleClient
+            if model_type == "local" and not api_base:
+                raise ValueError(f"Model '{name}' of type 'local' must have either 'path' or 'api_base'")
+                
+            if not api_base and model_type == "openai":
+                api_base = "https://api.openai.com/v1" # Default OpenAI base
+
+            if not api_base:
+                 raise ValueError(f"Model '{name}' of type '{model_type}' requires 'api_base' or 'base_url'")
+
             return OpenAICompatibleClient(
-                base_url=conf["base_url"],
+                base_url=api_base,
                 model_name=conf.get("model_name", name),
-                api_key=conf.get("api_key", "not-needed")
+                api_key=api_key
             )
 
         else:

@@ -286,7 +286,7 @@ def cmd_repl(args, pm: ProjectManager, cm: ConfigManager, config: dict):
     repl = AgentREPL(
         orchestrator=orchestrator,
         config=config,
-        config_path=cm.get_global_config_path()
+        config_path=str(cm.get_config_path() or cm.get_global_config_path())
     )
     repl.run()
 
