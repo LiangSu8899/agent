@@ -1,7 +1,8 @@
 """
 Interactive REPL Interface for the Debug Agent.
-Provides a Claude Code-style interactive shell experience.
+Provides a Claude Code-style interactive shell experience with hybrid role management.
 """
+import getpass
 import os
 import sys
 import threading
@@ -18,6 +19,7 @@ try:
     from rich.text import Text
     from rich.table import Table
     from rich.markdown import Markdown
+    from rich.style import Style as RichStyle
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -28,21 +30,31 @@ try:
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
     from prompt_toolkit.styles import Style
+    from prompt_toolkit.completion import WordCompleter, NestedCompleter, Completer, Completion
+    from prompt_toolkit.formatted_text import HTML
+    from prompt_toolkit.validation import Validator, ValidationError
     PROMPT_TOOLKIT_AVAILABLE = True
 except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
 
 
+# Valid roles for hybrid mode
+VALID_ROLES = ["planner", "coder"]
+
+
 class AgentREPL:
     """
     Interactive REPL interface for the Debug Agent.
-    Supports slash commands and streaming output.
+    Supports slash commands, hybrid role management, and streaming output.
     """
 
     # Slash commands registry
     COMMANDS = {
-        "model": "Switch to a different model",
-        "cost": "Show estimated token usage/cost",
+        "role": "Set model for a role: /role <planner|coder> <model_name>",
+        "model": "Set both roles to same model: /model <model_name>",
+        "models": "List available models",
+        "roles": "Show current role assignments",
+        "cost": "Show token usage and cost breakdown by model",
         "clear": "Clear context and memory",
         "status": "Show current session status",
         "history": "Show command history",
@@ -73,10 +85,16 @@ class AgentREPL:
         self.config_path = config_path
         self.history_file = history_file
 
+        # Ensure roles exist in config
+        if "roles" not in self.config:
+            self.config["roles"] = {"planner": "default", "coder": "default"}
+
         # Session tracking
         self.current_session_id: Optional[str] = None
-        self.token_usage = {"input": 0, "output": 0}
         self.session_start_time: Optional[float] = None
+
+        # Token usage tracking by model
+        self.token_usage: Dict[str, Dict[str, int]] = {}
 
         # Initialize console for rich output
         if RICH_AVAILABLE:
@@ -84,20 +102,31 @@ class AgentREPL:
         else:
             self.console = None
 
-        # Initialize prompt session
+        # Initialize prompt session with completer
         self.prompt_session = None
+        self._completer = None
         if PROMPT_TOOLKIT_AVAILABLE:
             try:
+                self._completer = self._create_completer()
                 self.prompt_session = PromptSession(
                     history=FileHistory(history_file),
                     auto_suggest=AutoSuggestFromHistory(),
+                    completer=self._completer,
+                    complete_while_typing=True,
+                    style=Style.from_dict({
+                        'prompt': '#00aa00 bold',
+                        'role': '#888888',
+                    }),
                 )
             except Exception:
                 pass
 
         # Command handlers
         self._command_handlers: Dict[str, Callable] = {
+            "role": self._handle_role,
             "model": self._handle_model,
+            "models": self._handle_models,
+            "roles": self._handle_roles,
             "cost": self._handle_cost,
             "clear": self._handle_clear,
             "status": self._handle_status,
@@ -107,6 +136,54 @@ class AgentREPL:
             "exit": self._handle_exit,
             "quit": self._handle_exit,
         }
+
+    def _create_completer(self) -> Optional[Completer]:
+        """Create a nested completer for slash commands."""
+        if not PROMPT_TOOLKIT_AVAILABLE:
+            return None
+
+        models = list(self.config.get("models", {}).keys())
+        roles = VALID_ROLES
+
+        # Build nested completion dict
+        completions = {
+            "/role": {role: {model: None for model in models} for role in roles},
+            "/model": {model: None for model in models},
+            "/models": None,
+            "/roles": None,
+            "/cost": None,
+            "/clear": None,
+            "/status": None,
+            "/history": None,
+            "/config": None,
+            "/help": None,
+            "/exit": None,
+            "/quit": None,
+        }
+
+        return NestedCompleter.from_nested_dict(completions)
+
+    def get_completer(self) -> Optional[Completer]:
+        """Get the current completer (for testing)."""
+        return self._completer
+
+    def _refresh_completer(self):
+        """Refresh the completer with updated model list."""
+        if PROMPT_TOOLKIT_AVAILABLE and self.prompt_session:
+            self._completer = self._create_completer()
+            self.prompt_session.completer = self._completer
+
+    def _get_available_models(self) -> List[str]:
+        """Get list of available model names."""
+        return list(self.config.get("models", {}).keys())
+
+    def _is_valid_model(self, model_name: str) -> bool:
+        """Check if a model name is valid."""
+        return model_name in self.config.get("models", {})
+
+    def _is_valid_role(self, role_name: str) -> bool:
+        """Check if a role name is valid."""
+        return role_name in VALID_ROLES
 
     def parse_input(self, user_input: str) -> Tuple[str, Any]:
         """
@@ -144,7 +221,8 @@ class AgentREPL:
             cmd_args: Command arguments
 
         Returns:
-            True if should continue REPL, False to exit
+            True if command succeeded and should continue REPL
+            False if should exit or command failed validation
         """
         handler = self._command_handlers.get(cmd_name)
 
@@ -155,83 +233,202 @@ class AgentREPL:
             self._print_info("Type /help for available commands")
             return True
 
+    def _handle_role(self, args: str) -> bool:
+        """Handle /role command - set model for a specific role."""
+        parts = args.strip().split()
+
+        if len(parts) < 2:
+            self._print_error("Usage: /role <planner|coder> <model_name>")
+            self._print_info("Use Tab for autocompletion")
+            return False
+
+        role_name = parts[0].lower()
+        model_name = parts[1]
+
+        # Validate role
+        if not self._is_valid_role(role_name):
+            self._print_error(f"Unknown role '{role_name}'. Valid roles: {', '.join(VALID_ROLES)}")
+            return False
+
+        # Validate model
+        if not self._is_valid_model(model_name):
+            available = self._get_available_models()
+            self._print_error(f"Unknown model '{model_name}'. Use Tab to see available models.")
+            if available:
+                self._print_info(f"Available: {', '.join(available[:5])}{'...' if len(available) > 5 else ''}")
+            return False
+
+        # Check if model needs API key
+        model_config = self.config.get("models", {}).get(model_name, {})
+        if self._needs_api_key(model_name, model_config):
+            api_key = self._prompt_for_api_key(model_name)
+            if not api_key:
+                self._print_error("No API key provided, role not changed")
+                return False
+            # Save API key
+            self.config["models"][model_name]["api_key"] = api_key
+            self._save_config()
+            self._print_success(f"API key saved for {model_name}")
+
+        # Update role
+        self.config["roles"][role_name] = model_name
+        self._print_success(f"Role '{role_name}' now uses model: {model_name}")
+
+        return True
+
     def _handle_model(self, args: str) -> bool:
-        """Handle /model command."""
-        if not args:
-            # Show current model
-            current = self.config.get("current_model", "default")
-            available = list(self.config.get("models", {}).keys())
-            self._print_info(f"Current model: {current}")
-            self._print_info(f"Available models: {', '.join(available) if available else 'none configured'}")
-            return True
+        """Handle /model command - set both roles to same model (single mode)."""
+        if not args.strip():
+            # Show current models
+            return self._handle_roles("")
 
         model_name = args.strip()
-        models_config = self.config.get("models", {})
 
-        # Check if model exists in config
-        if model_name not in models_config:
-            # Check if it's an API model that needs a key
-            if self._is_api_model(model_name):
-                self._print_info(f"Model '{model_name}' requires an API key.")
-                api_key = self._prompt_for_api_key(model_name)
-                if api_key:
-                    # Add model to config
-                    if "models" not in self.config:
-                        self.config["models"] = {}
-                    self.config["models"][model_name] = {
-                        "type": "openai-compatible",
-                        "api_key": api_key
-                    }
-                    # Save API key
-                    if "api_keys" not in self.config:
-                        self.config["api_keys"] = {}
-                    self.config["api_keys"][model_name] = api_key
-                    self._save_config()
-                    self._print_success(f"API key saved for {model_name}")
-                else:
-                    self._print_error("No API key provided, model not switched")
-                    return True
+        # Validate model
+        if not self._is_valid_model(model_name):
+            available = self._get_available_models()
+            self._print_error(f"Unknown model '{model_name}'. Use Tab to see available models.")
+            if available:
+                self._print_info(f"Available: {', '.join(available[:5])}{'...' if len(available) > 5 else ''}")
+            return True
 
-        # Switch model
-        self.config["current_model"] = model_name
-        self._print_success(f"Switched to model: {model_name}")
+        # Check if model needs API key
+        model_config = self.config.get("models", {}).get(model_name, {})
+        if self._needs_api_key(model_name, model_config):
+            api_key = self._prompt_for_api_key(model_name)
+            if not api_key:
+                self._print_error("No API key provided, model not switched")
+                return True
+            self.config["models"][model_name]["api_key"] = api_key
+            self._save_config()
+            self._print_success(f"API key saved for {model_name}")
 
-        # Update orchestrator if available
-        if self.orchestrator and hasattr(self.orchestrator, 'model_manager'):
-            try:
-                self.orchestrator.model_manager.get_model(model_name)
-            except Exception as e:
-                self._print_warning(f"Could not load model: {e}")
+        # Set both roles to this model
+        self.config["roles"]["planner"] = model_name
+        self.config["roles"]["coder"] = model_name
+        self._print_success(f"Both planner and coder now use: {model_name}")
+
+        return True
+
+    def _handle_models(self, args: str) -> bool:
+        """Handle /models command - list available models."""
+        models = self.config.get("models", {})
+
+        if not models:
+            self._print_info("No models configured")
+            return True
+
+        if RICH_AVAILABLE and self.console:
+            table = Table(title="Available Models")
+            table.add_column("Name", style="cyan")
+            table.add_column("Type", style="white")
+            table.add_column("Cost ($/1M)", style="green")
+            table.add_column("Description", style="dim")
+
+            for name, conf in models.items():
+                model_type = conf.get("type", "unknown")
+                cost_in = conf.get("cost_input", 0)
+                cost_out = conf.get("cost_output", 0)
+                desc = conf.get("description", "")[:30]
+                cost_str = f"${cost_in:.2f} / ${cost_out:.2f}" if cost_in or cost_out else "Free"
+                table.add_row(name, model_type, cost_str, desc)
+
+            self.console.print(table)
+        else:
+            print("=== Available Models ===")
+            for name, conf in models.items():
+                cost_in = conf.get("cost_input", 0)
+                cost_out = conf.get("cost_output", 0)
+                print(f"  {name}: ${cost_in:.2f}/${cost_out:.2f} per 1M tokens")
+
+        return True
+
+    def _handle_roles(self, args: str) -> bool:
+        """Handle /roles command - show current role assignments."""
+        roles = self.config.get("roles", {})
+
+        if RICH_AVAILABLE and self.console:
+            table = Table(title="Current Role Assignments")
+            table.add_column("Role", style="cyan")
+            table.add_column("Model", style="green")
+            table.add_column("Cost ($/1M)", style="yellow")
+
+            for role in VALID_ROLES:
+                model_name = roles.get(role, "not set")
+                model_conf = self.config.get("models", {}).get(model_name, {})
+                cost_in = model_conf.get("cost_input", 0)
+                cost_out = model_conf.get("cost_output", 0)
+                cost_str = f"${cost_in:.2f} / ${cost_out:.2f}" if cost_in or cost_out else "Free"
+                table.add_row(role.capitalize(), model_name, cost_str)
+
+            self.console.print(table)
+        else:
+            print("=== Current Roles ===")
+            for role in VALID_ROLES:
+                model_name = roles.get(role, "not set")
+                print(f"  {role}: {model_name}")
 
         return True
 
     def _handle_cost(self, args: str) -> bool:
-        """Handle /cost command."""
-        # Calculate estimated cost
-        input_tokens = self.token_usage.get("input", 0)
-        output_tokens = self.token_usage.get("output", 0)
-        total_tokens = input_tokens + output_tokens
-
-        # Rough cost estimation (varies by model)
-        # Using GPT-4 pricing as reference: $0.03/1K input, $0.06/1K output
-        input_cost = (input_tokens / 1000) * 0.03
-        output_cost = (output_tokens / 1000) * 0.06
-        total_cost = input_cost + output_cost
+        """Handle /cost command - show token usage and cost breakdown by model."""
+        models_config = self.config.get("models", {})
 
         if RICH_AVAILABLE and self.console:
-            table = Table(title="Session Token Usage")
-            table.add_column("Metric", style="cyan")
-            table.add_column("Value", style="green")
-            table.add_row("Input Tokens", str(input_tokens))
-            table.add_row("Output Tokens", str(output_tokens))
-            table.add_row("Total Tokens", str(total_tokens))
-            table.add_row("Estimated Cost", f"${total_cost:.4f}")
+            table = Table(title="Session Cost Breakdown")
+            table.add_column("Model", style="cyan")
+            table.add_column("Input Tokens", style="white")
+            table.add_column("Output Tokens", style="white")
+            table.add_column("Input Cost", style="green")
+            table.add_column("Output Cost", style="green")
+            table.add_column("Total", style="yellow bold")
+
+            total_cost = 0.0
+
+            for model_name, usage in self.token_usage.items():
+                input_tokens = usage.get("input", 0)
+                output_tokens = usage.get("output", 0)
+
+                model_conf = models_config.get(model_name, {})
+                cost_input_rate = model_conf.get("cost_input", 0)
+                cost_output_rate = model_conf.get("cost_output", 0)
+
+                input_cost = (input_tokens / 1_000_000) * cost_input_rate
+                output_cost = (output_tokens / 1_000_000) * cost_output_rate
+                model_total = input_cost + output_cost
+                total_cost += model_total
+
+                table.add_row(
+                    model_name,
+                    str(input_tokens),
+                    str(output_tokens),
+                    f"${input_cost:.6f}",
+                    f"${output_cost:.6f}",
+                    f"${model_total:.6f}"
+                )
+
+            # Add total row
+            table.add_row("", "", "", "", "[bold]TOTAL[/bold]", f"[bold]${total_cost:.6f}[/bold]")
+
             self.console.print(table)
+
+            if not self.token_usage:
+                self._print_info("No token usage recorded yet")
         else:
-            print(f"Input Tokens: {input_tokens}")
-            print(f"Output Tokens: {output_tokens}")
-            print(f"Total Tokens: {total_tokens}")
-            print(f"Estimated Cost: ${total_cost:.4f}")
+            print("=== Session Cost Breakdown ===")
+            total_cost = 0.0
+            for model_name, usage in self.token_usage.items():
+                input_tokens = usage.get("input", 0)
+                output_tokens = usage.get("output", 0)
+                model_conf = models_config.get(model_name, )
+                cost_input_rate = model_conf.get("cost_input", 0)
+                cost_output_rate = model_conf.get("cost_output", 0)
+                input_cost = (input_tokens / 1_000_000) * cost_input_rate
+                output_cost = (output_tokens / 1_000_000) * cost_output_rate
+                model_total = input_cost + output_cost
+                total_cost += model_total
+                print(f"  {model_name}: {input_tokens} in / {output_tokens} out = ${model_total:.6f}")
+            print(f"  TOTAL: ${total_cost:.6f}")
 
         return True
 
@@ -242,7 +439,7 @@ class AgentREPL:
             self.orchestrator.memory.clear()
 
         # Reset token usage
-        self.token_usage = {"input": 0, "output": 0}
+        self.token_usage = {}
 
         # Clear current session
         self.current_session_id = None
@@ -252,13 +449,16 @@ class AgentREPL:
 
     def _handle_status(self, args: str) -> bool:
         """Handle /status command."""
+        roles = self.config.get("roles", {})
+
         if RICH_AVAILABLE and self.console:
             table = Table(title="Agent Status")
             table.add_column("Property", style="cyan")
             table.add_column("Value", style="green")
 
             table.add_row("Current Session", self.current_session_id or "None")
-            table.add_row("Current Model", self.config.get("current_model", "default"))
+            table.add_row("Planner Model", roles.get("planner", "not set"))
+            table.add_row("Coder Model", roles.get("coder", "not set"))
 
             if self.session_start_time:
                 elapsed = time.time() - self.session_start_time
@@ -271,7 +471,8 @@ class AgentREPL:
             self.console.print(table)
         else:
             print(f"Current Session: {self.current_session_id or 'None'}")
-            print(f"Current Model: {self.config.get('current_model', 'default')}")
+            print(f"Planner: {roles.get('planner', 'not set')}")
+            print(f"Coder: {roles.get('coder', 'not set')}")
 
         return True
 
@@ -290,7 +491,6 @@ class AgentREPL:
 
     def _handle_config(self, args: str) -> bool:
         """Handle /config command."""
-        # Show config (hide sensitive values)
         safe_config = self._sanitize_config(self.config)
 
         if RICH_AVAILABLE and self.console:
@@ -317,11 +517,13 @@ class AgentREPL:
 
             self.console.print(table)
             self.console.print("\n[dim]Type any text without / to run it as a task[/dim]")
+            self.console.print("[dim]Use Tab for autocompletion[/dim]")
         else:
             print("=== Available Commands ===")
             for cmd, desc in self.COMMANDS.items():
                 print(f"  /{cmd:<10} - {desc}")
             print("\nType any text without / to run it as a task")
+            print("Use Tab for autocompletion")
 
         return True
 
@@ -330,15 +532,30 @@ class AgentREPL:
         self._print_info("Goodbye!")
         return False
 
-    def _is_api_model(self, model_name: str) -> bool:
-        """Check if a model name suggests it needs an API key."""
-        api_models = ["gpt-4", "gpt-3.5", "claude", "deepseek", "openai", "anthropic"]
-        return any(api in model_name.lower() for api in api_models)
+    def _needs_api_key(self, model_name: str, model_config: Dict) -> bool:
+        """Check if a model needs an API key."""
+        # Local models don't need keys
+        if model_config.get("type") == "local":
+            return False
+
+        # Check if key is already set and valid
+        api_key = model_config.get("api_key", "")
+        if api_key and not api_key.startswith("YOUR_"):
+            return False
+
+        # API models need keys
+        api_indicators = ["openai", "api", "gpt", "claude", "deepseek", "glm"]
+        model_type = model_config.get("type", "").lower()
+        return any(ind in model_type or ind in model_name.lower() for ind in api_indicators)
 
     def _prompt_for_api_key(self, model_name: str) -> Optional[str]:
-        """Prompt user for API key."""
+        """Prompt user for API key with masked input."""
         try:
-            api_key = input(f"Please enter API Key for {model_name}: ").strip()
+            if RICH_AVAILABLE and self.console:
+                self.console.print(f"[yellow]Enter API Key for [{model_name}][/yellow]")
+
+            # Use getpass for masked input
+            api_key = getpass.getpass(f"API Key for {model_name} > ").strip()
             return api_key if api_key else None
         except (EOFError, KeyboardInterrupt):
             return None
@@ -347,7 +564,7 @@ class AgentREPL:
         """Save current config to file."""
         try:
             with open(self.config_path, 'w') as f:
-                yaml.dump(self.config, f, default_flow_style=False)
+                yaml.dump(self.config, f, default_flow_style=False, allow_unicode=True)
         except Exception as e:
             self._print_error(f"Failed to save config: {e}")
 
@@ -357,6 +574,8 @@ class AgentREPL:
         for key, value in config.items():
             if key in ("api_keys", "secrets"):
                 safe[key] = {k: "***" for k in value} if isinstance(value, dict) else "***"
+            elif key == "api_key":
+                safe[key] = "***"
             elif isinstance(value, dict):
                 safe[key] = self._sanitize_config(value)
             else:
@@ -390,6 +609,21 @@ class AgentREPL:
             self.console.print(f"[yellow]⚠[/yellow] {message}")
         else:
             print(f"[WARN] {message}")
+
+    def add_token_usage(self, model_name: str, input_tokens: int, output_tokens: int):
+        """
+        Add token usage for a model.
+
+        Args:
+            model_name: Name of the model
+            input_tokens: Number of input tokens used
+            output_tokens: Number of output tokens used
+        """
+        if model_name not in self.token_usage:
+            self.token_usage[model_name] = {"input": 0, "output": 0}
+
+        self.token_usage[model_name]["input"] += input_tokens
+        self.token_usage[model_name]["output"] += output_tokens
 
     def run_task(self, task_description: str):
         """
@@ -436,7 +670,7 @@ class AgentREPL:
                     # Update live display
                     display_text = f"Status: {status}\n\n"
                     if logs:
-                        display_text += logs[-500:]  # Last 500 chars
+                        display_text += logs[-500:]
 
                     live.update(Panel(
                         Text(display_text),
@@ -472,19 +706,44 @@ class AgentREPL:
                 print(final_logs[-1000:])
 
     def get_prompt(self) -> str:
-        """Get the prompt string."""
-        model = self.config.get("current_model", "agent")
-        return f"[{model}] > "
+        """Get the prompt string with role info."""
+        roles = self.config.get("roles", {})
+        planner = roles.get("planner", "?")
+        coder = roles.get("coder", "?")
+
+        if planner == coder:
+            return f"[{planner}] ❯ "
+        else:
+            return f"[P:{planner[:8]}|C:{coder[:8]}] ❯ "
+
+    def get_bottom_toolbar(self):
+        """Get the bottom toolbar text."""
+        if not PROMPT_TOOLKIT_AVAILABLE:
+            return None
+
+        roles = self.config.get("roles", {})
+        planner = roles.get("planner", "not set")
+        coder = roles.get("coder", "not set")
+
+        return HTML(
+            f'<b>Planner:</b> <style bg="ansiblue">{planner}</style> | '
+            f'<b>Coder:</b> <style bg="ansigreen">{coder}</style> | '
+            f'<style fg="ansigray">/help for commands</style>'
+        )
 
     def run(self):
         """Run the main REPL loop."""
         # Print welcome message
         if RICH_AVAILABLE and self.console:
+            roles = self.config.get("roles", {})
             self.console.print(Panel(
-                "[bold]Debug Agent REPL[/bold]\n"
+                "[bold]Debug Agent REPL[/bold]\n\n"
+                f"Planner: [cyan]{roles.get('planner', 'not set')}[/cyan]\n"
+                f"Coder: [green]{roles.get('coder', 'not set')}[/green]\n\n"
                 "Type a task to execute, or use /help for commands.\n"
-                "Press Ctrl+C to interrupt, /exit to quit.",
-                title="Welcome"
+                "Use [bold]Tab[/bold] for autocompletion. Press Ctrl+C to interrupt.",
+                title="Welcome",
+                border_style="blue"
             ))
         else:
             print("=== Debug Agent REPL ===")
@@ -497,7 +756,10 @@ class AgentREPL:
             try:
                 # Get input
                 if self.prompt_session:
-                    user_input = self.prompt_session.prompt(self.get_prompt())
+                    user_input = self.prompt_session.prompt(
+                        self.get_prompt(),
+                        bottom_toolbar=self.get_bottom_toolbar
+                    )
                 else:
                     user_input = input(self.get_prompt())
 
@@ -508,12 +770,15 @@ class AgentREPL:
                     continue
                 elif action == "command":
                     cmd_name, cmd_args = payload
-                    running = self.handle_command(cmd_name, cmd_args)
+                    result = self.handle_command(cmd_name, cmd_args)
+                    # Only exit on /exit or /quit
+                    if cmd_name in ("exit", "quit") and not result:
+                        running = False
                 elif action == "task":
                     self.run_task(payload)
 
             except KeyboardInterrupt:
-                print()  # New line after ^C
+                print()
                 self._print_info("Interrupted. Type /exit to quit.")
             except EOFError:
                 running = False

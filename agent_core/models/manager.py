@@ -122,3 +122,43 @@ class ModelManager:
         if name not in self.config:
             raise ValueError(f"Unknown model: {name}")
         return self.config[name].copy()
+
+    def get_model_cost(self, name: str) -> Dict[str, float]:
+        """
+        Get cost information for a model.
+
+        Args:
+            name: Model name
+
+        Returns:
+            Dict with 'cost_input' and 'cost_output' (per 1M tokens)
+        """
+        if name not in self.config:
+            raise ValueError(f"Unknown model: {name}")
+
+        conf = self.config[name]
+        return {
+            "cost_input": conf.get("cost_input", 0.0),
+            "cost_output": conf.get("cost_output", 0.0)
+        }
+
+    def calculate_cost(self, name: str, input_tokens: int, output_tokens: int) -> float:
+        """
+        Calculate the cost for a given token usage.
+
+        Args:
+            name: Model name
+            input_tokens: Number of input tokens
+            output_tokens: Number of output tokens
+
+        Returns:
+            Total cost in dollars
+        """
+        costs = self.get_model_cost(name)
+        input_cost = (input_tokens / 1_000_000) * costs["cost_input"]
+        output_cost = (output_tokens / 1_000_000) * costs["cost_output"]
+        return input_cost + output_cost
+
+    def has_model(self, name: str) -> bool:
+        """Check if a model exists in config."""
+        return name in self.config

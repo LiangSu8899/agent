@@ -1,6 +1,86 @@
-api_keys:
-  deepseek-v3: sk-test-123
+system:
+  workspace_root: "."
+  safety_policy: "strict"
+
+# === 角色分配 (默认策略: 混合风暴) ===
+roles:
+  # 规划者：便宜、逻辑好、中文好 (推荐 GLM-4 或 DeepSeek-V3)
+  planner: "glm-4-plus"
+  # 编码者：代码能力强、上下文长 (推荐 DeepSeek V3/Coder 或 Claude 3.5)
+  coder: "deepseek-v3"
+
+# === 模型仓库 (包含 API 和 本地) ===
 models:
+  # --- 🇨🇳 DeepSeek (当前性价比之王) ---
   deepseek-v3:
-    api_key: sk-test-123
-    type: openai-compatible
+    type: "openai"
+    description: "DeepSeek V3 (API) - 极致性价比"
+    model_name: "deepseek-chat"
+    api_key: "YOUR_DEEPSEEK_KEY"
+    api_base: "https://api.deepseek.com"
+    temperature: 0.0
+    cost_input: 0.14  # $ per 1M tokens
+    cost_output: 0.28
+
+  deepseek-coder:
+    type: "openai"
+    description: "DeepSeek Coder V2 (API)"
+    model_name: "deepseek-coder"
+    api_key: "YOUR_DEEPSEEK_KEY"
+    api_base: "https://api.deepseek.com"
+    temperature: 0.0
+    cost_input: 0.14
+    cost_output: 0.28
+
+  # --- 🇨🇳 智谱 GLM (中文逻辑强) ---
+  glm-4-plus:
+    type: "openai"
+    description: "Zhipu GLM-4 Plus (API)"
+    model_name: "glm-4-plus"
+    api_key: "YOUR_ZHIPU_KEY"
+    api_base: "https://open.bigmodel.cn/api/paas/v4/"
+    temperature: 0.5
+    cost_input: 10.0
+    cost_output: 10.0
+
+  # --- 🇺🇸 OpenAI (基准参考) ---
+  gpt-4o:
+    type: "openai"
+    description: "OpenAI GPT-4o (API)"
+    model_name: "gpt-4o"
+    api_key: "YOUR_OPENAI_KEY"
+    # api_base: default
+    temperature: 0.1
+    cost_input: 2.50
+    cost_output: 10.00
+
+  # --- 🇺🇸 Anthropic (代码能力最强) ---
+  claude-3-5-sonnet:
+    type: "openai" # 通过 OpenRouter 或类似中转调用，或后续加原生支持
+    description: "Claude 3.5 Sonnet (API)"
+    model_name: "claude-3-5-sonnet-20240620"
+    api_key: "YOUR_KEY"
+    api_base: "https://openrouter.ai/api/v1"
+    temperature: 0.1
+    cost_input: 3.00
+    cost_output: 15.00
+
+  # --- 🏠 本地开源模型 (RTX 5090 推荐) ---
+  # 需配合 ollama 或 lm-studio 使用，或用 llama-cpp-python 加载 GGUF
+  local-qwen2.5-14b:
+    type: "openai" # 假设使用 Ollama 本地服务
+    description: "Qwen 2.5 14B (Local) - 全能型 (OpenSource)"
+    model_name: "qwen2.5:14b"
+    api_key: "ollama"
+    api_base: "http://localhost:11434/v1"
+    cost_input: 0.0
+    cost_output: 0.0
+  
+  local-deepseek-coder-v2-lite:
+    type: "local" # 使用内置 GGUF 加载器
+    description: "DeepSeek Coder V2 Lite (GGUF) - (OpenSource)"
+    path: "/models/deepseek-coder-v2-lite-instruct.Q6_K.gguf"
+    n_ctx: 16384
+    n_gpu_layers: -1
+    cost_input: 0.0
+    cost_output: 0.0
