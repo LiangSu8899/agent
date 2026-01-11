@@ -1,0 +1,3 @@
+[console_scripts]
+agent-os = agent_core.cli:main
+aos = agent_core.cli:main

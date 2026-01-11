@@ -56,8 +56,8 @@ all = [
 ]
 
 [project.scripts]
-agent-os = "main:main"
-aos = "main:main"
+agent-os = "agent_core.cli:main"
+aos = "agent_core.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/agent-os/agent-os"

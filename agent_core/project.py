@@ -291,3 +291,31 @@ class ProjectManager:
 
         # No project found anywhere
         return {"action": "init", "path": current_dir}
+
+    def load_or_init_project(self, project_path: str) -> bool:
+        """
+        Load an existing project or initialize a new one.
+
+        Args:
+            project_path: Path to the project directory
+
+        Returns:
+            True if project was loaded or initialized successfully
+        """
+        project_path = os.path.abspath(project_path)
+
+        # Check if path exists
+        if not os.path.exists(project_path):
+            return False
+
+        # Check if it's a directory
+        if not os.path.isdir(project_path):
+            return False
+
+        # Try to load existing project
+        if self.is_initialized(project_path):
+            return self.load_project(project_path)
+
+        # Initialize new project
+        self.init_project(project_path)
+        return True

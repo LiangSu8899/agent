@@ -81,8 +81,8 @@ setup(
     extras_require=extras_require,
     entry_points={
         "console_scripts": [
-            "agent-os=main:main",
-            "aos=main:main",  # Short alias
+            "agent-os=agent_core.cli:main",
+            "aos=agent_core.cli:main",  # Short alias
         ],
     },
     include_package_data=True,

@@ -14,20 +14,62 @@ from .utils.paths import (
 )
 
 
-# Default configuration template
+# Default configuration template - Ultimate Production Config
 DEFAULT_CONFIG = {
     "system": {
         "workspace_root": ".",
         "safety_policy": "strict"
     },
     "roles": {
-        "planner": "mock",
-        "coder": "mock"
+        "planner": "glm-4-plus",
+        "coder": "deepseek-v3"
     },
     "models": {
-        "mock": {
-            "type": "mock",
-            "description": "Mock model for testing",
+        "deepseek-v3": {
+            "type": "deepseek",
+            "description": "DeepSeek V3 - High performance reasoning model",
+            "api_base": "https://api.deepseek.com/v1",
+            "model_name": "deepseek-chat",
+            "cost_input": 0.27,
+            "cost_output": 1.10
+        },
+        "deepseek-coder": {
+            "type": "deepseek",
+            "description": "DeepSeek Coder - Specialized for code generation",
+            "api_base": "https://api.deepseek.com/v1",
+            "model_name": "deepseek-coder",
+            "cost_input": 0.14,
+            "cost_output": 0.28
+        },
+        "glm-4-plus": {
+            "type": "zhipu",
+            "description": "GLM-4-Plus - Zhipu AI flagship model",
+            "api_base": "https://open.bigmodel.cn/api/paas/v4",
+            "model_name": "glm-4-plus",
+            "cost_input": 0.50,
+            "cost_output": 0.50
+        },
+        "gpt-4o": {
+            "type": "openai",
+            "description": "GPT-4o - OpenAI multimodal flagship",
+            "api_base": "https://api.openai.com/v1",
+            "model_name": "gpt-4o",
+            "cost_input": 2.50,
+            "cost_output": 10.00
+        },
+        "claude-3-5-sonnet": {
+            "type": "anthropic",
+            "description": "Claude 3.5 Sonnet - Anthropic balanced model",
+            "api_base": "https://api.anthropic.com/v1",
+            "model_name": "claude-3-5-sonnet-20241022",
+            "cost_input": 3.00,
+            "cost_output": 15.00
+        },
+        "local-deepseek-coder-v2": {
+            "type": "local",
+            "description": "Local DeepSeek Coder V2 via Ollama",
+            "api_base": "http://localhost:11434/v1",
+            "model_name": "deepseek-coder-v2:16b",
             "cost_input": 0.0,
             "cost_output": 0.0
         }
@@ -41,6 +83,9 @@ DEFAULT_CONFIG = {
         "strict_mode": False
     }
 }
+
+# Models that indicate a mock-only config that should be upgraded
+MOCK_ONLY_MODELS = {"mock"}
 
 
 class ConfigManager:
@@ -71,6 +116,7 @@ class ConfigManager:
         """
         Load the global configuration.
         Creates default config if it doesn't exist.
+        Upgrades mock-only configs to production defaults.
 
         Returns:
             Configuration dictionary
@@ -82,15 +128,67 @@ class ConfigManager:
             try:
                 with open(config_path, 'r') as f:
                     self._config = yaml.safe_load(f) or {}
+
+                # Check if config needs upgrade (mock-only)
+                if self._is_mock_only_config():
+                    self._upgrade_config()
+                    self.save_global_config()
+
             except (yaml.YAMLError, IOError):
-                self._config = DEFAULT_CONFIG.copy()
+                self._config = self._deep_copy_config(DEFAULT_CONFIG)
         else:
             # Create default config
-            self._config = DEFAULT_CONFIG.copy()
+            self._config = self._deep_copy_config(DEFAULT_CONFIG)
             self.save_global_config()
 
         self._config_path = config_path
         return self._config
+
+    def _is_mock_only_config(self) -> bool:
+        """
+        Check if the current config only has mock models.
+
+        Returns:
+            True if config should be upgraded
+        """
+        models = self._config.get("models", {})
+        if not models:
+            return True
+
+        # Check if all models are mock
+        model_names = set(models.keys())
+        return model_names.issubset(MOCK_ONLY_MODELS)
+
+    def _upgrade_config(self):
+        """
+        Upgrade a mock-only config to production defaults.
+        Preserves any custom settings while adding new models.
+        """
+        import copy
+
+        # Merge models from default config
+        default_models = DEFAULT_CONFIG.get("models", {})
+        current_models = self._config.get("models", {})
+
+        # Add all default models (don't overwrite existing non-mock models)
+        for model_name, model_config in default_models.items():
+            if model_name not in current_models:
+                current_models[model_name] = copy.deepcopy(model_config)
+
+        self._config["models"] = current_models
+
+        # Update roles to use production models
+        self._config["roles"] = copy.deepcopy(DEFAULT_CONFIG.get("roles", {}))
+
+        # Preserve other settings but ensure defaults exist
+        for key in ["system", "session", "security"]:
+            if key not in self._config:
+                self._config[key] = copy.deepcopy(DEFAULT_CONFIG.get(key, {}))
+
+    def _deep_copy_config(self, config: Dict) -> Dict:
+        """Create a deep copy of a config dictionary."""
+        import copy
+        return copy.deepcopy(config)
 
     def save_global_config(self):
         """Save the current configuration to the global config file."""

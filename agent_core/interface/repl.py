@@ -54,6 +54,8 @@ class AgentREPL:
         "model": "Set both roles to same model: /model <model_name>",
         "models": "List available models",
         "roles": "Show current role assignments",
+        "project": "Switch to a project: /project <path>",
+        "projects": "List recent projects",
         "cost": "Show token usage and cost breakdown by model",
         "clear": "Clear context and memory",
         "status": "Show current session status",
@@ -69,7 +71,8 @@ class AgentREPL:
         orchestrator=None,
         config: Optional[Dict[str, Any]] = None,
         config_path: str = "config.yaml",
-        history_file: str = ".agent_history"
+        history_file: str = ".agent_history",
+        project_manager=None
     ):
         """
         Initialize the AgentREPL.
@@ -79,11 +82,13 @@ class AgentREPL:
             config: Configuration dictionary
             config_path: Path to config file for saving updates
             history_file: Path to command history file
+            project_manager: ProjectManager instance for project switching
         """
         self.orchestrator = orchestrator
         self.config = config or {}
         self.config_path = config_path
         self.history_file = history_file
+        self.project_manager = project_manager
 
         # Ensure roles exist in config
         if "roles" not in self.config:
@@ -127,6 +132,8 @@ class AgentREPL:
             "model": self._handle_model,
             "models": self._handle_models,
             "roles": self._handle_roles,
+            "project": self._handle_project,
+            "projects": self._handle_projects,
             "cost": self._handle_cost,
             "clear": self._handle_clear,
             "status": self._handle_status,
@@ -151,6 +158,8 @@ class AgentREPL:
             "/model": {model: None for model in models},
             "/models": None,
             "/roles": None,
+            "/project": None,
+            "/projects": None,
             "/cost": None,
             "/clear": None,
             "/status": None,
@@ -367,6 +376,126 @@ class AgentREPL:
             for role in VALID_ROLES:
                 model_name = roles.get(role, "not set")
                 print(f"  {role}: {model_name}")
+
+        return True
+
+    def _handle_project(self, args: str) -> bool:
+        """Handle /project command - switch to a different project."""
+        if not args.strip():
+            # Show current project
+            project_info = self.config.get("project", {})
+            if project_info:
+                self._print_info(f"Current project: {project_info.get('name', 'unknown')}")
+                self._print_info(f"Path: {project_info.get('path', 'unknown')}")
+            elif self.project_manager:
+                self._print_info(f"Current project: {self.project_manager.get_project_name()}")
+                self._print_info(f"Path: {self.project_manager.get_current_project()}")
+            else:
+                self._print_info("No project loaded")
+            return True
+
+        project_path = args.strip()
+
+        # Expand user home directory
+        if project_path.startswith("~"):
+            project_path = os.path.expanduser(project_path)
+
+        # Make absolute
+        project_path = os.path.abspath(project_path)
+
+        # Check if path exists
+        if not os.path.exists(project_path):
+            self._print_error(f"Path does not exist: {project_path}")
+            return True
+
+        # Check if it's a directory
+        if not os.path.isdir(project_path):
+            self._print_error(f"Path is not a directory: {project_path}")
+            return True
+
+        if not self.project_manager:
+            self._print_error("Project manager not available")
+            return True
+
+        # Load or initialize the project
+        success = self.project_manager.load_or_init_project(project_path)
+        if not success:
+            self._print_error(f"Failed to load/init project: {project_path}")
+            return True
+
+        # Update config with new project info
+        self.config["project"] = {
+            "name": self.project_manager.get_project_name(),
+            "path": self.project_manager.get_current_project()
+        }
+
+        # Add to recent projects
+        self.project_manager.add_to_recent_projects(project_path)
+
+        # Reload orchestrator with new project paths if available
+        if self.orchestrator:
+            try:
+                # Update session db path
+                new_db_path = self.project_manager.get_session_db_path()
+                new_log_dir = self.project_manager.get_logs_dir()
+
+                # Update orchestrator's session manager
+                if hasattr(self.orchestrator, 'session_manager'):
+                    from ..session import SessionManager
+                    self.orchestrator.session_manager = SessionManager(new_db_path)
+
+                # Update orchestrator's memory
+                if hasattr(self.orchestrator, 'memory'):
+                    new_history_path = self.project_manager.get_history_db_path()
+                    from ..memory import HistoryMemory
+                    self.orchestrator.memory = HistoryMemory(new_history_path)
+
+                self._print_success(f"Switched to project: {self.project_manager.get_project_name()}")
+                self._print_info(f"Session DB: {new_db_path}")
+            except Exception as e:
+                self._print_warning(f"Project switched but some components may not be updated: {e}")
+        else:
+            self._print_success(f"Switched to project: {self.project_manager.get_project_name()}")
+
+        return True
+
+    def _handle_projects(self, args: str) -> bool:
+        """Handle /projects command - list recent projects."""
+        if not self.project_manager:
+            self._print_error("Project manager not available")
+            return True
+
+        recent = self.project_manager.get_recent_projects(limit=10)
+        current = self.project_manager.get_current_project()
+
+        if RICH_AVAILABLE and self.console:
+            table = Table(title="Recent Projects")
+            table.add_column("#", style="dim")
+            table.add_column("Name", style="cyan")
+            table.add_column("Path", style="white")
+            table.add_column("Status", style="green")
+
+            for i, path in enumerate(recent, 1):
+                name = os.path.basename(path)
+                status = "[current]" if path == current else ""
+                table.add_row(str(i), name, path, status)
+
+            if not recent:
+                table.add_row("-", "No recent projects", "", "")
+
+            self.console.print(table)
+            self.console.print("\n[dim]Use /project <path> to switch projects[/dim]")
+        else:
+            print("=== Recent Projects ===")
+            for i, path in enumerate(recent, 1):
+                name = os.path.basename(path)
+                status = " [current]" if path == current else ""
+                print(f"  {i}. {name}: {path}{status}")
+
+            if not recent:
+                print("  No recent projects")
+
+            print("\nUse /project <path> to switch projects")
 
         return True
 
@@ -706,15 +835,21 @@ class AgentREPL:
                 print(final_logs[-1000:])
 
     def get_prompt(self) -> str:
-        """Get the prompt string with role info."""
+        """Get the prompt string with project and role info."""
         roles = self.config.get("roles", {})
         planner = roles.get("planner", "?")
         coder = roles.get("coder", "?")
 
-        if planner == coder:
-            return f"[{planner}] ❯ "
-        else:
-            return f"[P:{planner[:8]}|C:{coder[:8]}] ❯ "
+        # Get project name
+        project_name = "unknown"
+        project_info = self.config.get("project", {})
+        if project_info:
+            project_name = project_info.get("name", "unknown")
+        elif self.project_manager:
+            project_name = self.project_manager.get_project_name()
+
+        # Format: [Proj: <name>] [Planner: <model> | Coder: <model>]
+        return f"[Proj: {project_name}] [Planner: {planner[:12]} | Coder: {coder[:12]}] ❯ "
 
     def get_bottom_toolbar(self):
         """Get the bottom toolbar text."""
