@@ -3,7 +3,7 @@ system:
   safety_policy: strict
 roles:
   planner: glm-4-plus
-  coder: deepseek-v3
+  coder: glm-4-plus
 models:
   deepseek-v3:
     type: openai

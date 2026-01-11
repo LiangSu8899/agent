@@ -48,7 +48,7 @@ class AgentOrchestrator:
         # Extract config sections
         models_config = self.config.get("models", {})
         roles_config = self.config.get("roles", {})
-        workspace_root = self.config.get("system", {}).get("workspace_root", ".")
+        self.workspace_root = self.config.get("system", {}).get("workspace_root", ".")
         security_config = self.config.get("security", {})
         session_config = self.config.get("session", {})
 
@@ -58,8 +58,8 @@ class AgentOrchestrator:
         self.memory = HistoryMemory(db_path=db_path.replace(".db", "_history.db"))
         self.observer = OutputObserver()
         self.classifier = ErrorClassifier()
-        self.file_editor = FileEditor(root=workspace_root)
-        self.git_handler = GitHandler(root=workspace_root)
+        self.file_editor = FileEditor(root=self.workspace_root)
+        self.git_handler = GitHandler(root=self.workspace_root)
         self.safety_policy = SafetyPolicy(config=security_config)
 
         # Store role assignments
@@ -69,7 +69,7 @@ class AgentOrchestrator:
 
         # Active sessions tracking
         self._active_sessions: Dict[str, Dict[str, Any]] = {}
-        self._active_agents: Dict[str, DebugAgent] = {}
+        self._active_agents: Dict[str, Any] = {} # Can be DebugAgent or EngineeringAgent
         self._stop_events: Dict[str, threading.Event] = {}
         self._lock = threading.Lock()
 
@@ -106,12 +106,10 @@ class AgentOrchestrator:
             session_manager=self.session_manager,
             model_manager=self.model_manager,
             memory=self.memory,
-            observer=self.observer,
-            classifier=self.classifier,
-            safety_policy=self.safety_policy,
             max_steps=self.max_steps,
             planner_model=self.planner_model,
-            debug=self.debug
+            debug=self.debug,
+            workspace_root=self.workspace_root or "."
         )
 
         with self._lock:
@@ -177,7 +175,7 @@ class AgentOrchestrator:
         try:
             # Add a start log to the session so it's not empty
             self.session_manager._sessions[session_id]._append_log(f"\n[AGENT] Starting goal: {task_description}\n")
-            
+
             # Run the agent with the initial goal
             results = agent.run(initial_goal=task_description)
 

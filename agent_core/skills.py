@@ -666,6 +666,400 @@ if __name__ == "__main__":
             )
 
 
+class HttpServeSkill(Skill):
+    """Skill for creating HTTP server scripts."""
+
+    name = "http_serve"
+    description = "Create a Python HTTP server script"
+    category = "python"
+
+    TEMPLATE = '''#!/usr/bin/env python3
+"""
+{description}
+
+Usage:
+    python {filename} [--port PORT] [--host HOST]
+
+Features:
+    - Serves static files from current directory
+    - Supports GET and POST requests
+    - CORS enabled for development
+    - Request logging
+"""
+import argparse
+import http.server
+import socketserver
+import json
+import os
+from urllib.parse import urlparse, parse_qs
+from functools import partial
+
+
+class CORSRequestHandler(http.server.SimpleHTTPRequestHandler):
+    """HTTP request handler with CORS support."""
+
+    def end_headers(self):
+        """Add CORS headers."""
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        super().end_headers()
+
+    def do_OPTIONS(self):
+        """Handle OPTIONS request for CORS preflight."""
+        self.send_response(200)
+        self.end_headers()
+
+    def do_POST(self):
+        """Handle POST requests."""
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length)
+
+        try:
+            data = json.loads(post_data.decode('utf-8'))
+            response = {{"status": "success", "received": data}}
+        except json.JSONDecodeError:
+            response = {{"status": "success", "received": post_data.decode('utf-8')}}
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(response).encode('utf-8'))
+
+    def log_message(self, format, *args):
+        """Log requests with timestamp."""
+        print(f"[{{self.log_date_time_string()}}] {{args[0]}}")
+
+
+def run_server(host: str = '0.0.0.0', port: int = {port}):
+    """Run the HTTP server."""
+    handler = partial(CORSRequestHandler, directory=os.getcwd())
+
+    with socketserver.TCPServer((host, port), handler) as httpd:
+        print(f"Serving HTTP on {{host}}:{{port}}")
+        print(f"Directory: {{os.getcwd()}}")
+        print("Press Ctrl+C to stop...")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            print("\\nServer stopped.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="{description}")
+    parser.add_argument('--port', '-p', type=int, default={port}, help='Port to serve on')
+    parser.add_argument('--host', '-H', type=str, default='0.0.0.0', help='Host to bind to')
+    args = parser.parse_args()
+
+    run_server(host=args.host, port=args.port)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+    def check_preconditions(self, filepath: str = "http_serve.py", **kwargs) -> PreconditionResult:
+        """Check preconditions for HTTP server script creation."""
+        if not filepath.endswith('.py'):
+            return PreconditionResult(
+                passed=False,
+                message="HTTP server script must have .py extension",
+                details={"filepath": filepath}
+            )
+
+        if os.path.exists(filepath) and not kwargs.get('overwrite', False):
+            return PreconditionResult(
+                passed=False,
+                message=f"File already exists: {filepath}",
+                details={"filepath": filepath}
+            )
+
+        return PreconditionResult(
+            passed=True,
+            message="All preconditions met",
+            details={"filepath": filepath}
+        )
+
+    def generate_command(self, filepath: str = "http_serve.py", **kwargs) -> str:
+        """Generate command representation."""
+        return f"# Create HTTP server script: {filepath}"
+
+    def execute(self, filepath: str = "http_serve.py", description: str = "Simple HTTP Server",
+                port: int = 8000, overwrite: bool = False, **kwargs) -> SkillResult:
+        """Execute HTTP server script creation."""
+        import time
+        start_time = time.time()
+
+        precond = self.check_preconditions(filepath=filepath, overwrite=overwrite)
+        if not precond.passed:
+            return SkillResult(
+                status=SkillStatus.PRECONDITION_FAILED,
+                command="",
+                error=precond.message
+            )
+
+        try:
+            # Get just the filename for the docstring
+            filename = os.path.basename(filepath)
+
+            content = self.TEMPLATE.format(
+                description=description,
+                filename=filename,
+                port=port
+            )
+
+            # Create parent directory if needed
+            parent_dir = os.path.dirname(filepath)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir)
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            os.chmod(filepath, 0o755)
+
+            duration = time.time() - start_time
+
+            return SkillResult(
+                status=SkillStatus.EXECUTED,
+                command=self.generate_command(filepath=filepath),
+                output=f"Created HTTP server script: {filepath} (port: {port})",
+                files_created=[filepath],
+                duration_seconds=duration
+            )
+
+        except Exception as e:
+            return SkillResult(
+                status=SkillStatus.FAILED,
+                command=self.generate_command(filepath=filepath),
+                error=str(e)
+            )
+
+
+class ReadmeSkill(Skill):
+    """Skill for creating README.md documentation."""
+
+    name = "readme_create"
+    description = "Create README.md documentation"
+    category = "documentation"
+
+    TEMPLATE_EN = '''# {project_name}
+
+{description}
+
+## Features
+
+{features}
+
+## Installation
+
+```bash
+{installation}
+```
+
+## Usage
+
+```bash
+{usage}
+```
+
+## Configuration
+
+{configuration}
+
+## License
+
+{license}
+'''
+
+    TEMPLATE_BILINGUAL = '''# {project_name}
+
+{description_en}
+
+{description_cn}
+
+## Features / 功能特性
+
+{features_en}
+
+{features_cn}
+
+## Installation / 安装
+
+```bash
+{installation}
+```
+
+## Usage / 使用方法
+
+```bash
+{usage}
+```
+
+## Configuration / 配置
+
+{configuration}
+
+## License / 许可证
+
+{license}
+'''
+
+    def check_preconditions(self, filepath: str = "README.md", **kwargs) -> PreconditionResult:
+        """Check preconditions for README creation."""
+        if os.path.exists(filepath) and not kwargs.get('overwrite', False):
+            return PreconditionResult(
+                passed=False,
+                message=f"File already exists: {filepath}",
+                details={"filepath": filepath}
+            )
+
+        return PreconditionResult(
+            passed=True,
+            message="All preconditions met",
+            details={"filepath": filepath}
+        )
+
+    def generate_command(self, filepath: str = "README.md", **kwargs) -> str:
+        """Generate command representation."""
+        return f"# Create README: {filepath}"
+
+    def execute(self, filepath: str = "README.md", project_name: str = "Project",
+                description: str = "A project description", bilingual: bool = False,
+                features: List[str] = None, installation: str = "pip install .",
+                usage: str = "python main.py", configuration: str = "See config.yaml",
+                license_type: str = "MIT", overwrite: bool = False, **kwargs) -> SkillResult:
+        """Execute README creation."""
+        import time
+        start_time = time.time()
+
+        precond = self.check_preconditions(filepath=filepath, overwrite=overwrite)
+        if not precond.passed:
+            return SkillResult(
+                status=SkillStatus.PRECONDITION_FAILED,
+                command="",
+                error=precond.message
+            )
+
+        try:
+            features = features or ["Feature 1", "Feature 2", "Feature 3"]
+            features_str = "\n".join(f"- {f}" for f in features)
+
+            if bilingual:
+                content = self.TEMPLATE_BILINGUAL.format(
+                    project_name=project_name,
+                    description_en=description,
+                    description_cn=kwargs.get('description_cn', '项目描述'),
+                    features_en=features_str,
+                    features_cn=kwargs.get('features_cn', '- 功能1\n- 功能2\n- 功能3'),
+                    installation=installation,
+                    usage=usage,
+                    configuration=configuration,
+                    license=license_type
+                )
+            else:
+                content = self.TEMPLATE_EN.format(
+                    project_name=project_name,
+                    description=description,
+                    features=features_str,
+                    installation=installation,
+                    usage=usage,
+                    configuration=configuration,
+                    license=license_type
+                )
+
+            # Create parent directory if needed
+            parent_dir = os.path.dirname(filepath)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir)
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            duration = time.time() - start_time
+
+            return SkillResult(
+                status=SkillStatus.EXECUTED,
+                command=self.generate_command(filepath=filepath),
+                output=f"Created README: {filepath} ({'bilingual' if bilingual else 'English'})",
+                files_created=[filepath],
+                duration_seconds=duration
+            )
+
+        except Exception as e:
+            return SkillResult(
+                status=SkillStatus.FAILED,
+                command=self.generate_command(filepath=filepath),
+                error=str(e)
+            )
+
+
+class DirectoryCreateSkill(Skill):
+    """Skill for creating directories."""
+
+    name = "directory_create"
+    description = "Create a directory structure"
+    category = "file"
+
+    def check_preconditions(self, path: str, **kwargs) -> PreconditionResult:
+        """Check preconditions for directory creation."""
+        if '..' in path:
+            return PreconditionResult(
+                passed=False,
+                message="Path traversal detected",
+                details={"path": path}
+            )
+
+        if os.path.exists(path) and not kwargs.get('exist_ok', True):
+            return PreconditionResult(
+                passed=False,
+                message=f"Directory already exists: {path}",
+                details={"path": path}
+            )
+
+        return PreconditionResult(
+            passed=True,
+            message="All preconditions met",
+            details={"path": path}
+        )
+
+    def generate_command(self, path: str, **kwargs) -> str:
+        """Generate command representation."""
+        return f"mkdir -p {path}"
+
+    def execute(self, path: str, exist_ok: bool = True, **kwargs) -> SkillResult:
+        """Execute directory creation."""
+        import time
+        start_time = time.time()
+
+        precond = self.check_preconditions(path=path, exist_ok=exist_ok)
+        if not precond.passed:
+            return SkillResult(
+                status=SkillStatus.PRECONDITION_FAILED,
+                command="",
+                error=precond.message
+            )
+
+        try:
+            os.makedirs(path, exist_ok=exist_ok)
+            duration = time.time() - start_time
+
+            return SkillResult(
+                status=SkillStatus.EXECUTED,
+                command=self.generate_command(path=path),
+                output=f"Created directory: {path}",
+                files_created=[path],
+                duration_seconds=duration
+            )
+
+        except Exception as e:
+            return SkillResult(
+                status=SkillStatus.FAILED,
+                command=self.generate_command(path=path),
+                error=str(e)
+            )
+
+
 class SkillRegistry:
     """Registry for all available skills."""
 
@@ -679,6 +1073,9 @@ class SkillRegistry:
         self.register(FileCreateSkill())
         self.register(DockerBuildSkill())
         self.register(PythonScriptSkill())
+        self.register(HttpServeSkill())
+        self.register(ReadmeSkill())
+        self.register(DirectoryCreateSkill())
 
     def register(self, skill: Skill):
         """Register a skill."""
@@ -723,6 +1120,38 @@ class SkillRegistry:
             if match:
                 url = match.group(1)
                 return (self._skills.get('git_clone'), {'url': url})
+
+        # HTTP server patterns
+        http_patterns = [
+            r'(?:create|write)\s+(?:a\s+)?(?:http|web)\s*(?:server|serve)',
+            r'(?:create|write)\s+(?:a\s+)?http_serve\.py',
+            r'http\s+server\s+script',
+        ]
+        for pattern in http_patterns:
+            if re.search(pattern, task_lower):
+                return (self._skills.get('http_serve'), {'filepath': 'http_serve.py'})
+
+        # README patterns
+        readme_patterns = [
+            r'(?:create|write|add)\s+(?:a\s+)?readme(?:\.md)?',
+            r'(?:create|write)\s+(?:a\s+)?documentation',
+            r'readme\s+(?:file|documentation)',
+        ]
+        for pattern in readme_patterns:
+            if re.search(pattern, task_lower):
+                bilingual = 'bilingual' in task_lower or '双语' in task_lower or 'chinese' in task_lower
+                return (self._skills.get('readme_create'), {'bilingual': bilingual})
+
+        # Directory creation patterns
+        dir_patterns = [
+            r'(?:create|make)\s+(?:a\s+)?(?:directory|folder)\s+(?:named\s+|called\s+)?["\']?(\S+)["\']?',
+            r'mkdir\s+(?:-p\s+)?(\S+)',
+        ]
+        for pattern in dir_patterns:
+            match = re.search(pattern, task_lower)
+            if match:
+                path = match.group(1)
+                return (self._skills.get('directory_create'), {'path': path})
 
         # File creation patterns
         file_patterns = [

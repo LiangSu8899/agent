@@ -199,6 +199,9 @@ class TaskSummary:
     total_lines_written: int = 0
     duration_seconds: float = 0.0
     error_message: Optional[str] = None
+    unmet_requirements: List[str] = field(default_factory=list)
+    root_cause_analysis: List[str] = field(default_factory=list)
+    repair_actions: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -212,5 +215,8 @@ class TaskSummary:
             "commands_executed": self.commands_executed,
             "total_lines_written": self.total_lines_written,
             "duration_seconds": self.duration_seconds,
-            "error_message": self.error_message
+            "error_message": self.error_message,
+            "unmet_requirements": self.unmet_requirements,
+            "root_cause_analysis": self.root_cause_analysis,
+            "repair_actions": self.repair_actions
         }

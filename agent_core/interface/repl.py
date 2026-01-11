@@ -1370,10 +1370,22 @@ class AgentREPL:
         table.add_row("Duration", f"{duration:.1f}s")
 
         if summary.get("error_message"):
-            table.add_row("Error", f"[red]{summary['error_message']}[/red]")
+            table.add_row("Error", f"[bold red]{summary['error_message']}[/bold red]")
+            
+        # If there are unmet requirements from EngineeringAgent
+        if "unmet_requirements" in summary and summary["unmet_requirements"]:
+            table.add_row("Unmet Req.", f"[bold red]{', '.join(summary['unmet_requirements'][:3])}[/bold red]")
+            
+        if "root_cause_analysis" in summary and summary["root_cause_analysis"]:
+            rca = "; ".join(summary["root_cause_analysis"][:2])
+            table.add_row("Root Cause", f"[yellow]{rca}[/yellow]")
+            
+        if "repair_actions" in summary and summary["repair_actions"]:
+            repairs = f"{len(summary['repair_actions'])} actions"
+            table.add_row("Repairs", f"[bold cyan]{repairs}[/bold cyan]")
 
         self.console.print()
-        self.console.print(Panel(table, border_style="blue"))
+        self.console.print(Panel(table, border_style="green", title="[bold white on green] Engineering Delivery Report [/bold white on green]"))
 
     def run_task(self, task_description: str):
         """

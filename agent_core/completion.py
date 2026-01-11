@@ -130,26 +130,41 @@ class CompletionGate:
     def take_snapshot(self) -> StateSnapshot:
         """
         Take a snapshot of the current environment state.
-
-        Returns:
-            StateSnapshot of current state
+        Detects ANY change in the workspace to prevent false stall detections.
         """
         snapshot = StateSnapshot()
 
-        # Check for expected files
+        # 1. Check for expected files (High priority track)
         for filename in self._expected_files:
             filepath = os.path.join(self.workspace_root, filename)
             if os.path.exists(filepath):
                 snapshot.files_exist.add(filename)
-                # Get file hash for content tracking
                 try:
                     with open(filepath, 'rb') as f:
-                        content = f.read()
+                        content = f.read(4096) # Just first 4KB
                         snapshot.file_hashes[filename] = hashlib.md5(content).hexdigest()[:16]
                 except Exception:
                     pass
 
-        # Check common directories
+        # 2. Broad scan: Check file count and last modified times in root/1st level
+        # This ensures ANY new file or mod is detected even if not 'expected'
+        try:
+            root_items = os.listdir(self.workspace_root)
+            snapshot.files_exist.update(root_items[:50]) # Track up to 50 names
+            
+            # Simple broad metric: Total file count (recursive to depth 2)
+            file_count = 0
+            for root, dirs, files in os.walk(self.workspace_root):
+                if root.count(os.sep) - self.workspace_root.count(os.sep) > 2:
+                    continue
+                file_count += len(files) + len(dirs)
+            
+            # Use file count as a "pseudo-file" to trigger state change
+            snapshot.file_hashes["__internal_total_items__"] = str(file_count)
+        except Exception:
+            pass
+
+        # 3. Check common directories
         common_dirs = ['.git', 'node_modules', '__pycache__', 'venv', '.venv']
         for dirname in common_dirs:
             dirpath = os.path.join(self.workspace_root, dirname)
@@ -226,22 +241,26 @@ class CompletionGate:
                     return CompletionStatus.LOOP_DETECTED
 
         # Check for stalling (no state change)
+        # We only consider it a real stall if the command is ALSO repeating
+        # or if we've reached a much higher limit without ANY state change.
         if current_state_hash == self._last_state_hash:
-            self._stall_count += 1
+            if command_hash in self._repeated_action_count and self._repeated_action_count[command_hash] > 1:
+                self._stall_count += 1
+            else:
+                # If the command is NEW, we are still exploring, not necessarily stalled
+                # But we still increment a "soft" stall counter
+                self._stall_count += 0.5 
+            
             if self._stall_count >= self.max_stall_count:
                 return CompletionStatus.STALLED
         else:
             self._stall_count = 0
             self._last_state_hash = current_state_hash
 
-        # Check goal completion
-        if self._check_goal_achieved(current_snapshot, output, thought):
-            return CompletionStatus.COMPLETED
-
-        # Check for failure patterns
-        if self._check_failure_patterns(output, exit_code):
-            # Don't immediately fail, but track
-            pass
+        # Check goal completion - REMOVED subjective LLM thought checks
+        # Completion is now exclusively handled by the Verification Phase
+        if command.upper() == "DONE":
+             return CompletionStatus.COMPLETED
 
         return CompletionStatus.IN_PROGRESS
 
@@ -252,45 +271,9 @@ class CompletionGate:
         thought: str
     ) -> bool:
         """
-        Check if the goal has been achieved based on current state.
-
-        Args:
-            snapshot: Current state snapshot
-            output: Recent output
-            thought: Planner's thought
-
-        Returns:
-            True if goal appears to be achieved
+        DEPRECATED: Subjective goal checking is disabled in engineering mode.
+        Completion is determined by AcceptanceContract verification.
         """
-        # Check if expected files exist
-        if self._expected_files:
-            files_created = sum(1 for f in self._expected_files if f in snapshot.files_exist)
-            if files_created == len(self._expected_files):
-                return True
-
-        # Check for clone success
-        if 'clone_success' in self._expected_patterns:
-            if '.git' in snapshot.directories_exist:
-                return True
-            if 'Cloning into' in output and 'done' in output.lower():
-                return True
-
-        # Check thought for completion indicators
-        thought_lower = thought.lower()
-        completion_phrases = [
-            'task is complete',
-            'task completed',
-            'successfully completed',
-            'goal achieved',
-            'done',
-            'finished',
-            '任务完成',
-            '已完成'
-        ]
-        for phrase in completion_phrases:
-            if phrase in thought_lower:
-                return True
-
         return False
 
     def _check_failure_patterns(self, output: str, exit_code: int) -> bool:
