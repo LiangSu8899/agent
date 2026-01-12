@@ -1123,54 +1123,90 @@ class ProjectInspectionSkill(Skill):
             os.makedirs(output_dir, exist_ok=True)
             report_path = pipeline.save_report(output_dir=output_dir)
 
-            # Generate summary output
+            # Generate concise summary output
             summary = pipeline.get_summary()
+
+            # Get core modules - deduplicate and prioritize
+            seen_names = set()
+            core_modules = []
+
+            # First, add modules with test files
+            for m in report.modules:
+                if m.test_file and m.name not in seen_names:
+                    core_modules.append(m)
+                    seen_names.add(m.name)
+
+            # Then add entry points
+            for m in report.modules:
+                if 'main' in m.name.lower() and m.name not in seen_names:
+                    core_modules.append(m)
+                    seen_names.add(m.name)
+
+            # Finally add important modules (core, utils, etc)
+            for m in report.modules:
+                if any(keyword in m.name.lower() for keyword in ['core', 'util', 'config', 'api']) and m.name not in seen_names:
+                    core_modules.append(m)
+                    seen_names.add(m.name)
+                    if len(core_modules) >= 5:
+                        break
+
+            # Get high-risk test targets
+            high_risk_targets = [t for t in report.test_targets if t.risk_level.value in ['critical', 'high']]
+
+            # Count risk levels
+            critical_count = len([t for t in report.test_targets if t.risk_level.value == 'critical'])
+            high_count = len([t for t in report.test_targets if t.risk_level.value == 'high'])
+            medium_count = len([t for t in report.test_targets if t.risk_level.value == 'medium'])
+            low_count = len([t for t in report.test_targets if t.risk_level.value == 'low'])
+
             output_lines = [
                 "",
-                "=" * 70,
-                "PROJECT INSPECTION REPORT",
-                "=" * 70,
+                "🔍 项目分析完成",
                 "",
-                f"Project Type: {summary.get('project_type', 'unknown')}",
-                f"Language: {summary.get('language', 'Unknown')}",
-                f"Modules Found: {summary.get('module_count', 0)}",
-                f"Test Targets: {summary.get('test_target_count', 0)}",
-                f"Has Tests: {summary.get('has_tests', False)}",
+                "📋 项目概览:",
+                f"  项目类型: {summary.get('project_type', 'unknown')} | 语言: {summary.get('language', 'Unknown')}",
+                f"  模块总数: {summary.get('module_count', 0)} | 测试目标: {summary.get('test_target_count', 0)}",
                 "",
-                "-" * 70,
-                "DETECTED MODULES:",
-                "-" * 70,
             ]
 
-            for module in report.modules:
-                test_status = "✓" if module.test_file else "✗"
-                output_lines.append(f"  [{test_status}] {module.name:15} - {module.responsibility}")
+            if core_modules:
+                output_lines.extend([
+                    "🎯 核心模块:",
+                ])
+                for i, module in enumerate(core_modules[:5], 1):
+                    test_status = "✓" if module.test_file else "✗"
+                    output_lines.append(f"  {i}. [{test_status}] {module.name:20} - {module.responsibility}")
+                output_lines.append("")
 
-            output_lines.extend([
-                "",
-                "-" * 70,
-                "TEST TARGETS:",
-                "-" * 70,
-            ])
+            # Add risk summary in a compact format
+            risk_line = "⚠️  风险分布: "
+            if critical_count > 0:
+                risk_line += f"🔴 {critical_count} | "
+            if high_count > 0:
+                risk_line += f"🟠 {high_count} | "
+            if medium_count > 0:
+                risk_line += f"🟡 {medium_count} | "
+            if low_count > 0:
+                risk_line += f"🟢 {low_count}"
 
-            for target in report.test_targets:
-                risk_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(target.risk_level.value, "⚪")
-                output_lines.append(f"  {target.id}: {target.description}")
-                output_lines.append(f"      {risk_icon} Risk: {target.risk_level.value:10} | Module: {target.module}")
-                output_lines.append(f"      Cmd: {target.verification_cmd}")
+            output_lines.append(risk_line.rstrip(" | "))
+            output_lines.append("")
+
+            # Show top 3 high-risk targets if any
+            if high_risk_targets:
+                output_lines.extend([
+                    "🚨 需要立即处理的问题:",
+                ])
+                for target in high_risk_targets[:3]:
+                    risk_icon = {"critical": "🔴", "high": "🟠"}.get(target.risk_level.value, "⚪")
+                    output_lines.append(f"  {risk_icon} {target.description}")
                 output_lines.append("")
 
             output_lines.extend([
-                "-" * 70,
-                "RECOMMENDED DEBUG ORDER:",
-                "-" * 70,
-                "  1. Start with LOW risk tests (green)",
-                "  2. Move to MEDIUM risk tests (yellow)",
-                "  3. Address HIGH risk tests (orange)",
-                "  4. Review CRITICAL issues (red)",
+                "📊 详细报告:",
+                f"  • {report_path}",
+                f"  • {report_path.replace('.md', '.json')}",
                 "",
-                f"Report saved to: {report_path}",
-                "=" * 70,
             ])
 
             duration = time.time() - start_time
