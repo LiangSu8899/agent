@@ -851,6 +851,53 @@ If the task is complete, respond with:
         error_message = None
         completion_status = CompletionStatus.IN_PROGRESS
 
+        # ========== SKILL MATCHING - Try to match task to a skill first ==========
+        skill_result = self._try_skill_match(goal)
+        if skill_result:
+            # Skill was matched and executed
+            self.events.emit_simple(
+                EventType.EXECUTOR_COMPLETE,
+                f"Skill '{skill_result['skill']}' executed successfully",
+                step=0,
+                skill=skill_result['skill'],
+                status=str(skill_result['status'])
+            )
+
+            # If skill has output, emit it
+            if skill_result.get('output'):
+                self.events.emit_simple(
+                    EventType.OBSERVER_RESULT,
+                    skill_result['output'][:500] + "..." if len(skill_result.get('output', '')) > 500 else skill_result.get('output', ''),
+                    step=0,
+                    full_output=skill_result.get('output', '')
+                )
+
+            # Create a StepResult for the skill execution
+            skill_step_result = StepResult(
+                step_number=0,
+                thought=f"Matched skill: {skill_result['skill']}",
+                command=skill_result.get('command', ''),
+                output=skill_result.get('output', ''),
+                exit_code=0 if skill_result['status'] == SkillStatus.EXECUTED else 1,
+                status="COMPLETED" if skill_result['status'] == SkillStatus.EXECUTED else "FAILED"
+            )
+            results.append(skill_step_result)
+
+            # If skill executed successfully, emit completion
+            if skill_result['status'] == SkillStatus.EXECUTED:
+                self._emit_task_summary(results, "COMPLETED")
+                self.events.emit_simple(
+                    EventType.AGENT_COMPLETE,
+                    f"Task completed via skill: {skill_result['skill']}",
+                    status="COMPLETED",
+                    reason="skill_execution"
+                )
+                return results
+
+            # If skill failed, continue with normal flow
+            current_output = skill_result.get('error', '')
+        # ========== END SKILL MATCHING ==========
+
         try:
             while self.current_step < self.max_steps:
                 # First step uses is_initial=True to trigger goal-focused planning

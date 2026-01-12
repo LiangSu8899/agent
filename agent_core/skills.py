@@ -1060,6 +1060,143 @@ class DirectoryCreateSkill(Skill):
             )
 
 
+class ProjectInspectionSkill(Skill):
+    """
+    Skill for analyzing project structure and generating test targets.
+    This is a PRE-DEBUG skill that should be invoked before any debugging task.
+    """
+
+    name = "project_inspect"
+    description = "Analyze project structure, identify modules, and generate test targets"
+    category = "analysis"
+
+    def check_preconditions(self, project_root: str = ".", **kwargs) -> PreconditionResult:
+        """Check if project can be inspected."""
+        if not os.path.isdir(project_root):
+            return PreconditionResult(
+                passed=False,
+                message=f"Project root does not exist: {project_root}",
+                details={"project_root": project_root}
+            )
+
+        return PreconditionResult(
+            passed=True,
+            message="Project root exists and is accessible",
+            details={"project_root": os.path.abspath(project_root)}
+        )
+
+    def generate_command(self, project_root: str = ".", **kwargs) -> str:
+        """Generate command representation."""
+        return f"[INSPECT] Analyzing project at {project_root}"
+
+    def execute(self, project_root: str = ".", output_dir: str = ".agent/reports", **kwargs) -> SkillResult:
+        """
+        Execute project inspection and generate report.
+
+        Args:
+            project_root: Root directory of the project to inspect
+            output_dir: Directory to save reports
+
+        Returns:
+            SkillResult with inspection output
+        """
+        import time
+        start_time = time.time()
+
+        precond = self.check_preconditions(project_root=project_root)
+        if not precond.passed:
+            return SkillResult(
+                status=SkillStatus.PRECONDITION_FAILED,
+                command=self.generate_command(project_root=project_root),
+                error=precond.message
+            )
+
+        try:
+            # Import the inspection pipeline
+            from .project_inspection import ProjectInspectionPipeline, RiskLevel
+
+            # Run inspection
+            pipeline = ProjectInspectionPipeline(project_root=project_root)
+            report = pipeline.run_full_inspection()
+
+            # Save report
+            os.makedirs(output_dir, exist_ok=True)
+            report_path = pipeline.save_report(output_dir=output_dir)
+
+            # Generate summary output
+            summary = pipeline.get_summary()
+            output_lines = [
+                "",
+                "=" * 70,
+                "PROJECT INSPECTION REPORT",
+                "=" * 70,
+                "",
+                f"Project Type: {summary.get('project_type', 'unknown')}",
+                f"Language: {summary.get('language', 'Unknown')}",
+                f"Modules Found: {summary.get('module_count', 0)}",
+                f"Test Targets: {summary.get('test_target_count', 0)}",
+                f"Has Tests: {summary.get('has_tests', False)}",
+                "",
+                "-" * 70,
+                "DETECTED MODULES:",
+                "-" * 70,
+            ]
+
+            for module in report.modules:
+                test_status = "✓" if module.test_file else "✗"
+                output_lines.append(f"  [{test_status}] {module.name:15} - {module.responsibility}")
+
+            output_lines.extend([
+                "",
+                "-" * 70,
+                "TEST TARGETS:",
+                "-" * 70,
+            ])
+
+            for target in report.test_targets:
+                risk_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(target.risk_level.value, "⚪")
+                output_lines.append(f"  {target.id}: {target.description}")
+                output_lines.append(f"      {risk_icon} Risk: {target.risk_level.value:10} | Module: {target.module}")
+                output_lines.append(f"      Cmd: {target.verification_cmd}")
+                output_lines.append("")
+
+            output_lines.extend([
+                "-" * 70,
+                "RECOMMENDED DEBUG ORDER:",
+                "-" * 70,
+                "  1. Start with LOW risk tests (green)",
+                "  2. Move to MEDIUM risk tests (yellow)",
+                "  3. Address HIGH risk tests (orange)",
+                "  4. Review CRITICAL issues (red)",
+                "",
+                f"Report saved to: {report_path}",
+                "=" * 70,
+            ])
+
+            duration = time.time() - start_time
+
+            return SkillResult(
+                status=SkillStatus.EXECUTED,
+                command=self.generate_command(project_root=project_root),
+                output="\n".join(output_lines),
+                files_created=[report_path, report_path.replace('.md', '.json')],
+                duration_seconds=duration
+            )
+
+        except ImportError as e:
+            return SkillResult(
+                status=SkillStatus.FAILED,
+                command=self.generate_command(project_root=project_root),
+                error=f"ProjectInspection module not available: {e}"
+            )
+        except Exception as e:
+            return SkillResult(
+                status=SkillStatus.FAILED,
+                command=self.generate_command(project_root=project_root),
+                error=str(e)
+            )
+
+
 class SkillRegistry:
     """Registry for all available skills."""
 
@@ -1076,6 +1213,7 @@ class SkillRegistry:
         self.register(HttpServeSkill())
         self.register(ReadmeSkill())
         self.register(DirectoryCreateSkill())
+        self.register(ProjectInspectionSkill())  # Add project inspection skill
 
     def register(self, skill: Skill):
         """Register a skill."""
@@ -1184,6 +1322,22 @@ class SkillRegistry:
         for pattern in docker_patterns:
             if re.search(pattern, task_lower):
                 return (self._skills.get('docker_build'), {})
+
+        # Project inspection patterns - MUST be checked for analysis/debug tasks
+        inspect_patterns = [
+            r'(?:analyze|inspect|understand|check)\s+(?:the\s+)?(?:project|code|codebase)',
+            r'(?:分析|检查|理解|查看)\s*(?:这个|该)?\s*(?:项目|代码|工程)',
+            r'(?:debug|调试)\s+(?:the\s+)?(?:project|这个项目|this)',
+            r'(?:what|how)\s+(?:is|does)\s+(?:this|the)\s+(?:project|code)',
+            r'(?:project|code)\s+(?:structure|architecture|overview)',
+            r'(?:帮我|请)\s*(?:分析|检查|理解|查看)',
+            r'(?:总结|概述|说明)\s*(?:这个|该)?\s*(?:项目|代码)',
+            r'(?:是|干|做)\s*(?:什么|啥)',  # "是干什么的" pattern
+            r'(?:这个|该)\s*(?:项目|代码|工程)\s*(?:是|干|做)',
+        ]
+        for pattern in inspect_patterns:
+            if re.search(pattern, task_lower):
+                return (self._skills.get('project_inspect'), {'project_root': '.'})
 
         return None
 
