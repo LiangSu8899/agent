@@ -1360,17 +1360,24 @@ class SkillRegistry:
                 return (self._skills.get('docker_build'), {})
 
         # Project inspection patterns - MUST be checked for analysis/debug tasks
+        # NOTE: Patterns should be specific to avoid matching file/directory browsing requests
         inspect_patterns = [
             r'(?:analyze|inspect|understand|check)\s+(?:the\s+)?(?:this\s+)?(?:project|code|codebase)',
             r'analyze\s+this',  # Simple "analyze this"
-            r'(?:分析|检查|理解|查看|看看)\s*(?:这个|该)?\s*(?:项目|代码|工程)',
+            # Chinese patterns - must include project/code keywords to avoid matching file browsing
+            r'(?:分析|检查|理解|查看|看看)\s*(?:这个|该)\s*(?:项目|代码|工程)',
             r'(?:debug|调试)\s+(?:the\s+)?(?:project|这个项目|this)',
             r'(?:what|how)\s+(?:is|does)\s+(?:this|the)\s+(?:project|code)',
             r'(?:project|code)\s+(?:structure|architecture|overview)',
-            r'(?:帮我|请)\s*(?:分析|检查|理解|查看|看看)',
+            # "帮我看看这个项目" but NOT "帮我看看xxx里面是什么"
+            r'(?:帮我|请)\s*(?:分析|检查|理解|查看|看看)\s*(?:这个|该|当前)?\s*(?:项目|代码|工程)',
             r'(?:总结|概述|说明)\s*(?:这个|该)?\s*(?:项目|代码)',
-            r'(?:是|干|做)\s*(?:什么|啥)',  # "是干什么的" pattern
-            r'(?:这个|该)\s*(?:项目|代码|工程)\s*(?:是|干|做)',
+            # "这个项目是干什么的" pattern - "是干什么" or "是什么"
+            r'(?:这个|该)?\s*(?:项目|代码|工程)\s*是\s*(?:干|做)?\s*(?:什么|啥)',
+            # "分析一下这个代码" pattern
+            r'(?:分析|检查)\s*一下\s*(?:这个|该)?\s*(?:项目|代码|工程)',
+            # "查看xxx的项目代码" pattern - matches "帮我仔细查看这个qwen的项目代码"
+            r'(?:查看|看看|分析)\s*(?:这个|该)?\s*\w+的?\s*(?:项目|代码|工程)',
         ]
         for pattern in inspect_patterns:
             if re.search(pattern, task_lower):
