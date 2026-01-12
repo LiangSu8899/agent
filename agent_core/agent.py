@@ -885,7 +885,6 @@ If the task is complete, respond with:
 
             # If skill executed successfully, emit completion
             if skill_result['status'] == SkillStatus.EXECUTED:
-                self._emit_task_summary(results, "COMPLETED")
                 self.events.emit_simple(
                     EventType.AGENT_COMPLETE,
                     f"Task completed via skill: {skill_result['skill']}",
