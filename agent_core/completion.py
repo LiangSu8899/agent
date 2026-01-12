@@ -234,12 +234,27 @@ class CompletionGate:
         else:
             self._repeated_action_count[command_hash] = 1
 
+        # Check if this is a read-only/information-gathering command
+        # These commands don't change state but are still making progress
+        read_only_patterns = [
+            'ls', 'cat', 'head', 'tail', 'grep', 'find', 'which', 'whereis',
+            'pwd', 'echo', 'env', 'printenv', 'file', 'stat', 'wc', 'diff',
+            'tree', 'less', 'more', 'type', 'readlink', 'realpath'
+        ]
+        command_lower = command.lower().strip()
+        is_read_only = any(command_lower.startswith(p) for p in read_only_patterns)
+
         # Check for stalling (no state change)
         if current_state_hash == self._last_state_hash:
-            self._stall_count += 1
+            # Read-only commands don't count towards stall if they succeed
+            if is_read_only and exit_code == 0:
+                # Still increment but with a higher threshold for read-only commands
+                self._stall_count += 0.5  # Half weight for read-only commands
+            else:
+                self._stall_count += 1
 
-            # Check for stall threshold first (has priority)
-            if self._stall_count >= self.max_stall_count:
+            # Check for stall threshold (use higher threshold)
+            if self._stall_count >= self.max_stall_count * 2:  # Double threshold
                 return CompletionStatus.STALLED
         else:
             self._stall_count = 0
