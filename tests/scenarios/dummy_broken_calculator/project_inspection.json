@@ -5,7 +5,7 @@
     "entry_point": null,
     "build_tool": null,
     "root_path": "/home/heima/suliang/main/agent/tests/scenarios/dummy_broken_calculator",
-    "detected_at": "2026-01-12T00:10:06.064850"
+    "detected_at": "2026-01-12T00:18:27.625186"
   },
   "modules": [
     {
@@ -63,5 +63,5 @@
       "estimated_time": 0.5
     }
   ],
-  "generated_at": "2026-01-12T00:10:06.064885"
+  "generated_at": "2026-01-12T00:18:27.625259"
 }

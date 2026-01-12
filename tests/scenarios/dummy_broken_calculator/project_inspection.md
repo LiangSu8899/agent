@@ -1,6 +1,6 @@
 # Project Inspection Report
 
-**Generated**: 2026-01-12T00:10:06.064885
+**Generated**: 2026-01-12T00:18:27.625259
 **Project Path**: /home/heima/suliang/main/agent/tests/scenarios/dummy_broken_calculator
 
 ## Project Summary
