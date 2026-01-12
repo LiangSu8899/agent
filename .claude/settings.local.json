@@ -77,7 +77,8 @@
       "Bash(python3 -m json.tool)",
       "Bash(git commit -m \"Fix workspace_root to use absolute path based on current working directory\n\n- Convert relative workspace_root paths to absolute paths\n- Ensures ProjectInspectionSkill analyzes the correct project\n- Fixes issue where system analyzed wrong directory when running from different locations\n- Now correctly handles projects in different directories\")",
       "Bash(python3 -c \"import sys, json; d = json.load\\(sys.stdin\\); print\\(f\"\"Project Path: {d[''''project_info''''][''''root_path'''']}\"\"\\)\")",
-      "Bash(git commit -m \"Improve ProjectInspectionSkill pattern matching precision\n\n- Make patterns more specific to avoid matching file/directory browsing requests\n- ''帮我看看agent_core里面是什么'' no longer triggers project_inspect\n- ''帮我看看这个项目'' still correctly triggers project_inspect\n- Added pattern for ''这个项目是干什么的'' format\n- Added pattern for ''查看xxx的项目代码'' format\n- All 10 test cases pass\")"
+      "Bash(git commit -m \"Improve ProjectInspectionSkill pattern matching precision\n\n- Make patterns more specific to avoid matching file/directory browsing requests\n- ''帮我看看agent_core里面是什么'' no longer triggers project_inspect\n- ''帮我看看这个项目'' still correctly triggers project_inspect\n- Added pattern for ''这个项目是干什么的'' format\n- Added pattern for ''查看xxx的项目代码'' format\n- All 10 test cases pass\")",
+      "Bash(git commit -m \"Fix ProjectInspectionSkill to extract and use project name from user input\n\n- Added _extract_project_path\\(\\) method to extract project name from task\n- Patterns now correctly extract English project names \\(opencode, Qwen, etc.\\)\n- Case-insensitive matching for project directories\n- Falls back to current directory if project not found\n- ''帮我看看opencode这个项目'' now correctly analyzes opencode subdirectory\n- ''帮我看看Qwen这个项目'' now correctly analyzes Qwen subdirectory\n- All 5 test cases pass\")"
     ]
   }
 }

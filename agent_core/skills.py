@@ -1379,11 +1379,57 @@ class SkillRegistry:
             # "查看xxx的项目代码" pattern - matches "帮我仔细查看这个qwen的项目代码"
             r'(?:查看|看看|分析)\s*(?:这个|该)?\s*\w+的?\s*(?:项目|代码|工程)',
         ]
+
         for pattern in inspect_patterns:
             if re.search(pattern, task_lower):
-                return (self._skills.get('project_inspect'), {'project_root': '.'})
+                # Try to extract project name from the task
+                project_root = self._extract_project_path(task_lower)
+                return (self._skills.get('project_inspect'), {'project_root': project_root})
 
         return None
+
+    def _extract_project_path(self, task: str) -> str:
+        """
+        Extract project path from task description.
+
+        Looks for project names mentioned in the task and checks if they exist
+        as subdirectories in the current working directory.
+
+        Args:
+            task: The task description (lowercase)
+
+        Returns:
+            Path to the project directory, or '.' if no specific project found
+        """
+        # Patterns to extract project names (use [a-zA-Z0-9_-]+ instead of \w+ to avoid matching Chinese)
+        name_patterns = [
+            r'(?:看看|查看|分析|检查)\s*([a-zA-Z0-9_-]+)\s*(?:这个|这)?\s*(?:项目|代码|工程)',
+            r'(?:看看|查看|分析|检查)\s*(?:这个|该)?\s*([a-zA-Z0-9_-]+)\s*的?\s*(?:项目|代码|工程)',
+            r'([a-zA-Z0-9_-]+)\s*(?:项目|代码|工程)\s*(?:是|干|做)',
+            # English patterns
+            r'(?:look at|check|analyze|inspect)\s+(?:the\s+)?([a-zA-Z0-9_-]+)\s+(?:project|code)',
+        ]
+
+        for pattern in name_patterns:
+            match = re.search(pattern, task, re.IGNORECASE)
+            if match:
+                project_name = match.group(1)
+
+                # Check if this directory exists in current working directory
+                potential_path = os.path.join(os.getcwd(), project_name)
+                if os.path.isdir(potential_path):
+                    return potential_path
+
+                # Try case-insensitive match
+                try:
+                    for item in os.listdir(os.getcwd()):
+                        if item.lower() == project_name.lower() and os.path.isdir(os.path.join(os.getcwd(), item)):
+                            return os.path.join(os.getcwd(), item)
+                except OSError:
+                    pass
+
+        # Default to current directory
+        return '.'
 
 
 # Global skill registry
