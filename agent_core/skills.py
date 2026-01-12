@@ -1363,11 +1363,11 @@ class SkillRegistry:
         inspect_patterns = [
             r'(?:analyze|inspect|understand|check)\s+(?:the\s+)?(?:this\s+)?(?:project|code|codebase)',
             r'analyze\s+this',  # Simple "analyze this"
-            r'(?:分析|检查|理解|查看)\s*(?:这个|该)?\s*(?:项目|代码|工程)',
+            r'(?:分析|检查|理解|查看|看看)\s*(?:这个|该)?\s*(?:项目|代码|工程)',
             r'(?:debug|调试)\s+(?:the\s+)?(?:project|这个项目|this)',
             r'(?:what|how)\s+(?:is|does)\s+(?:this|the)\s+(?:project|code)',
             r'(?:project|code)\s+(?:structure|architecture|overview)',
-            r'(?:帮我|请)\s*(?:分析|检查|理解|查看)',
+            r'(?:帮我|请)\s*(?:分析|检查|理解|查看|看看)',
             r'(?:总结|概述|说明)\s*(?:这个|该)?\s*(?:项目|代码)',
             r'(?:是|干|做)\s*(?:什么|啥)',  # "是干什么的" pattern
             r'(?:这个|该)\s*(?:项目|代码|工程)\s*(?:是|干|做)',
