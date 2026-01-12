@@ -48,7 +48,9 @@ class AgentOrchestrator:
         # Extract config sections
         models_config = self.config.get("models", {})
         roles_config = self.config.get("roles", {})
-        self.workspace_root = self.config.get("system", {}).get("workspace_root", ".")
+        workspace_root = self.config.get("system", {}).get("workspace_root", ".")
+        # Convert relative paths to absolute paths based on current working directory
+        self.workspace_root = os.path.abspath(workspace_root)
         security_config = self.config.get("security", {})
         session_config = self.config.get("session", {})
 
