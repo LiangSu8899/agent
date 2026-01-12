@@ -1325,7 +1325,8 @@ class SkillRegistry:
 
         # Project inspection patterns - MUST be checked for analysis/debug tasks
         inspect_patterns = [
-            r'(?:analyze|inspect|understand|check)\s+(?:the\s+)?(?:project|code|codebase)',
+            r'(?:analyze|inspect|understand|check)\s+(?:the\s+)?(?:this\s+)?(?:project|code|codebase)',
+            r'analyze\s+this',  # Simple "analyze this"
             r'(?:分析|检查|理解|查看)\s*(?:这个|该)?\s*(?:项目|代码|工程)',
             r'(?:debug|调试)\s+(?:the\s+)?(?:project|这个项目|this)',
             r'(?:what|how)\s+(?:is|does)\s+(?:this|the)\s+(?:project|code)',
