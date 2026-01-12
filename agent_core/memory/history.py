@@ -196,7 +196,7 @@ class HistoryMemory:
         # Add explicit warning about failed commands
         failed = self.get_failed_commands()
         if failed:
-            lines.append("\n⚠️ Commands that have FAILED (do not retry):")
+            lines.append("\n⚠️ Failed Commands (DO NOT RETRY):")
             for cmd in failed[-5:]:  # Last 5 failed commands
                 lines.append(f"  - {cmd}")
 

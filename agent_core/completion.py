@@ -234,28 +234,23 @@ class CompletionGate:
         else:
             self._repeated_action_count[command_hash] = 1
 
-        if self._repeated_action_count[command_hash] >= self.max_repeated_actions:
-            # Check if state changed despite repeated command
-            if len(self._state_history) >= 2:
-                if self._state_history[-1] == self._state_history[-2]:
-                    return CompletionStatus.LOOP_DETECTED
-
         # Check for stalling (no state change)
-        # We only consider it a real stall if the command is ALSO repeating
-        # or if we've reached a much higher limit without ANY state change.
         if current_state_hash == self._last_state_hash:
-            if command_hash in self._repeated_action_count and self._repeated_action_count[command_hash] > 1:
-                self._stall_count += 1
-            else:
-                # If the command is NEW, we are still exploring, not necessarily stalled
-                # But we still increment a "soft" stall counter
-                self._stall_count += 0.5 
-            
+            self._stall_count += 1
+
+            # Check for stall threshold first (has priority)
             if self._stall_count >= self.max_stall_count:
                 return CompletionStatus.STALLED
         else:
             self._stall_count = 0
             self._last_state_hash = current_state_hash
+
+        # Check for loop detection (repeated actions with no state change)
+        if self._repeated_action_count[command_hash] >= self.max_repeated_actions:
+            # Check if state changed despite repeated command
+            if len(self._state_history) >= 2:
+                if self._state_history[-1] == self._state_history[-2]:
+                    return CompletionStatus.LOOP_DETECTED
 
         # Check goal completion - REMOVED subjective LLM thought checks
         # Completion is now exclusively handled by the Verification Phase

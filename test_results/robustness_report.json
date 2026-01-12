@@ -1,0 +1,200 @@
+{
+  "timestamp": "2026-01-11T23:52:34.728124",
+  "summary": {
+    "total_tests": 15,
+    "passed": 15,
+    "failed": 0,
+    "pass_rate": "100.0%"
+  },
+  "by_module": {
+    "GitHandler": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "pass_rate": "100.0%"
+    },
+    "HistoryMemory": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "pass_rate": "100.0%"
+    },
+    "SafetyPolicy": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "pass_rate": "100.0%"
+    },
+    "CompletionGate": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "pass_rate": "100.0%"
+    },
+    "SessionManager": {
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "pass_rate": "100.0%"
+    }
+  },
+  "details": [
+    {
+      "test": "git_init_and_commit",
+      "module": "GitHandler",
+      "passed": true,
+      "error": null,
+      "details": {
+        "commit_hash": "43a58fe8"
+      },
+      "duration": "0.021s"
+    },
+    {
+      "test": "git_hard_reset",
+      "module": "GitHandler",
+      "passed": true,
+      "error": null,
+      "details": {
+        "reset_to": "4116dab4"
+      },
+      "duration": "0.027s"
+    },
+    {
+      "test": "git_checkpoint_rollback",
+      "module": "GitHandler",
+      "passed": true,
+      "error": null,
+      "details": {
+        "checkpoint": "23836c96"
+      },
+      "duration": "0.031s"
+    },
+    {
+      "test": "history_add_retrieve",
+      "module": "HistoryMemory",
+      "passed": true,
+      "error": null,
+      "details": {
+        "entries_count": 3
+      },
+      "duration": "0.129s"
+    },
+    {
+      "test": "history_failure_detection",
+      "module": "HistoryMemory",
+      "passed": true,
+      "error": null,
+      "details": {
+        "failure_detected": true
+      },
+      "duration": "0.147s"
+    },
+    {
+      "test": "history_context_generation",
+      "module": "HistoryMemory",
+      "passed": true,
+      "error": null,
+      "details": {
+        "context_length": 376
+      },
+      "duration": "0.231s"
+    },
+    {
+      "test": "safety_dangerous_commands",
+      "module": "SafetyPolicy",
+      "passed": true,
+      "error": null,
+      "details": {
+        "dangerous_commands_blocked": 5
+      },
+      "duration": "0.002s"
+    },
+    {
+      "test": "safety_safe_commands",
+      "module": "SafetyPolicy",
+      "passed": true,
+      "error": null,
+      "details": {
+        "safe_commands_allowed": 5
+      },
+      "duration": "0.000s"
+    },
+    {
+      "test": "safety_path_validation",
+      "module": "SafetyPolicy",
+      "passed": true,
+      "error": null,
+      "details": {
+        "dangerous_paths_blocked": 3,
+        "safe_paths_allowed": 3
+      },
+      "duration": "0.000s"
+    },
+    {
+      "test": "completion_goal_parsing",
+      "module": "CompletionGate",
+      "passed": true,
+      "error": null,
+      "details": {
+        "goals_parsed": 4
+      },
+      "duration": "0.001s"
+    },
+    {
+      "test": "completion_loop_detection",
+      "module": "CompletionGate",
+      "passed": true,
+      "error": null,
+      "details": {
+        "loop_detected": true,
+        "detection_at_iteration": 3
+      },
+      "duration": "0.000s"
+    },
+    {
+      "test": "completion_stall_detection",
+      "module": "CompletionGate",
+      "passed": true,
+      "error": null,
+      "details": {
+        "stall_detected": true
+      },
+      "duration": "0.000s"
+    },
+    {
+      "test": "session_create_status",
+      "module": "SessionManager",
+      "passed": true,
+      "error": null,
+      "details": {
+        "session_id": "c12fea85",
+        "initial_status": "PENDING"
+      },
+      "duration": "0.043s"
+    },
+    {
+      "test": "session_lifecycle",
+      "module": "SessionManager",
+      "passed": true,
+      "error": null,
+      "details": {
+        "lifecycle": [
+          "PENDING",
+          "RUNNING",
+          "COMPLETED"
+        ]
+      },
+      "duration": "0.342s"
+    },
+    {
+      "test": "session_persistence",
+      "module": "SessionManager",
+      "passed": true,
+      "error": null,
+      "details": {
+        "sessions_count": 2
+      },
+      "duration": "0.070s"
+    }
+  ]
+}

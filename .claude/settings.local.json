@@ -46,7 +46,11 @@
       "Bash(chmod +x /home/heima/suliang/main/agent/run_test.sh)",
       "Bash(find /home/heima/suliang/main/agent/HiggsAnalysis-CombinedLimit -name http_serve.py -o -name readme*.md -o -name README*.md)",
       "Bash(chmod +x /home/heima/suliang/main/agent/run_10_tests.sh)",
-      "Bash(./run_10_tests.sh)"
+      "Bash(./run_10_tests.sh)",
+      "Bash(python test_core_modules.py)",
+      "Bash(find test_results -type f -exec ls -lh {} ;)",
+      "Bash(wc -l test_results/*.md test_core_modules.py TESTING_SUMMARY.txt)",
+      "Bash(git add -A)"
     ]
   }
 }
