@@ -863,13 +863,17 @@ If the task is complete, respond with:
                 status=str(skill_result['status'])
             )
 
-            # If skill has output, emit it
+            # If skill has output, print it directly to terminal
             if skill_result.get('output'):
+                # Print the full output to terminal
+                print(skill_result.get('output', ''))
+
+                # Also emit event for logging
                 self.events.emit_simple(
                     EventType.OBSERVER_RESULT,
-                    skill_result['output'][:500] + "..." if len(skill_result.get('output', '')) > 500 else skill_result.get('output', ''),
+                    f"Skill output: {len(skill_result.get('output', ''))} chars",
                     step=0,
-                    full_output=skill_result.get('output', '')
+                    skill=skill_result['skill']
                 )
 
             # Create a StepResult for the skill execution
