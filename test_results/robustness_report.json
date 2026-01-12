@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-01-11T23:52:34.728124",
+  "timestamp": "2026-01-11T23:52:53.593452",
   "summary": {
     "total_tests": 15,
     "passed": 15,
@@ -45,9 +45,9 @@
       "passed": true,
       "error": null,
       "details": {
-        "commit_hash": "43a58fe8"
+        "commit_hash": "b33fc04b"
       },
-      "duration": "0.021s"
+      "duration": "0.020s"
     },
     {
       "test": "git_hard_reset",
@@ -55,9 +55,9 @@
       "passed": true,
       "error": null,
       "details": {
-        "reset_to": "4116dab4"
+        "reset_to": "065a2ccf"
       },
-      "duration": "0.027s"
+      "duration": "0.025s"
     },
     {
       "test": "git_checkpoint_rollback",
@@ -65,9 +65,9 @@
       "passed": true,
       "error": null,
       "details": {
-        "checkpoint": "23836c96"
+        "checkpoint": "e23e4f3a"
       },
-      "duration": "0.031s"
+      "duration": "0.033s"
     },
     {
       "test": "history_add_retrieve",
@@ -87,7 +87,7 @@
       "details": {
         "failure_detected": true
       },
-      "duration": "0.147s"
+      "duration": "0.110s"
     },
     {
       "test": "history_context_generation",
@@ -97,7 +97,7 @@
       "details": {
         "context_length": 376
       },
-      "duration": "0.231s"
+      "duration": "0.121s"
     },
     {
       "test": "safety_dangerous_commands",
@@ -107,7 +107,7 @@
       "details": {
         "dangerous_commands_blocked": 5
       },
-      "duration": "0.002s"
+      "duration": "0.001s"
     },
     {
       "test": "safety_safe_commands",
@@ -138,7 +138,7 @@
       "details": {
         "goals_parsed": 4
       },
-      "duration": "0.001s"
+      "duration": "0.000s"
     },
     {
       "test": "completion_loop_detection",
@@ -167,10 +167,10 @@
       "passed": true,
       "error": null,
       "details": {
-        "session_id": "c12fea85",
+        "session_id": "b3e7866e",
         "initial_status": "PENDING"
       },
-      "duration": "0.043s"
+      "duration": "0.044s"
     },
     {
       "test": "session_lifecycle",
@@ -184,7 +184,7 @@
           "COMPLETED"
         ]
       },
-      "duration": "0.342s"
+      "duration": "0.340s"
     },
     {
       "test": "session_persistence",
@@ -194,7 +194,7 @@
       "details": {
         "sessions_count": 2
       },
-      "duration": "0.070s"
+      "duration": "0.068s"
     }
   ]
 }

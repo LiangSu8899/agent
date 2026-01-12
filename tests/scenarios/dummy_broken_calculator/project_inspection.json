@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "type": "unknown",
+    "language": "Unknown",
+    "entry_point": null,
+    "build_tool": null,
+    "root_path": "/home/heima/suliang/main/agent/tests/scenarios/dummy_broken_calculator",
+    "detected_at": "2026-01-12T00:10:06.064850"
+  },
+  "modules": [
+    {
+      "name": "utils",
+      "path": "utils.py",
+      "responsibility": "Utility functions and helpers",
+      "test_file": null,
+      "dependencies": []
+    },
+    {
+      "name": "test_calc",
+      "path": "test_calc.py",
+      "responsibility": "Unit/integration tests",
+      "test_file": null,
+      "dependencies": []
+    },
+    {
+      "name": "main",
+      "path": "main.py",
+      "responsibility": "Entry point and CLI handling",
+      "test_file": null,
+      "dependencies": []
+    },
+    {
+      "name": "calc",
+      "path": "calc.py",
+      "responsibility": "Core logic and processing",
+      "test_file": "test_calc.py",
+      "dependencies": []
+    }
+  ],
+  "test_targets": [
+    {
+      "id": "T1",
+      "description": "Verify utils (Utility functions and helpers)",
+      "module": "utils",
+      "verification_cmd": "python -m pytest utils_test.py -v",
+      "risk_level": "medium",
+      "estimated_time": 1.0
+    },
+    {
+      "id": "T2",
+      "description": "Verify main (Entry point and CLI handling)",
+      "module": "main",
+      "verification_cmd": "python -m pytest main_test.py -v",
+      "risk_level": "medium",
+      "estimated_time": 1.0
+    },
+    {
+      "id": "T3",
+      "description": "Test calc (Core logic and processing)",
+      "module": "calc",
+      "verification_cmd": "python -m pytest test_calc.py -v",
+      "risk_level": "low",
+      "estimated_time": 0.5
+    }
+  ],
+  "generated_at": "2026-01-12T00:10:06.064885"
+}
