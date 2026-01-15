@@ -322,28 +322,4 @@ MIT License
 
 ---
 
-## 📊 Comparison
-
-| Feature Dimension | Feature Point | DebugFlow (Agent OS) | Claude Code (Official) | OpenCode / Interpreter | Oh-My-OpenCode |
-| --- | --- | --- | --- | --- | --- |
-| **Core Positioning** | Primary Use Case | **Deep Engineering Debugging** | Gen. Code Assist & Q&A | Gen. Automation & Scripts | Geek-focused Automation |
-| **Compute Model** | Model Support | **Local (5090) + Cloud Hybrid** | Anthropic Cloud Only | Any (Local/Cloud) | Any (Local/Cloud) |
-| **Execution Env** | Terminal Interaction | **✅ (Core Strength)** | ✅ | ⚠️ (Partial subprocess) | ⚠️ |
-| | Session Persistence | **✅ (SQLite Storage)** | ❌ (Forget on exit) | ⚠️ (Runtime memory) | ⚠️ |
-| | Long-task Resume | **✅ (Pause/Resume)** | ❌ | ❌ | ❌ |
-| | Process-level Control | **✅ (Graceful Ctrl+C)** | ⚠️ | ❌ (Prone to hanging) | ⚠️ |
-| **Safety** | Git Auto-Snapshot | **✅ (Mandatory)** | ❌ | ❌ (Raw mode) | ❌ |
-| | Sandbox/Permissions | ⚠️ (Phase 7 Todo) | ⚠️ (Cloud only) | ❌ (Root access) | ❌ |
-| | Human-in-the-loop | ⚠️ (Todo) | ✅ (Every change) | ✅ (Optional) | ✅ |
-| **Smart Features** | Failure Memory | **✅ (SQLite-based)** | ❌ | ❌ | ❌ |
-| | Active Observer | **✅ (Stream analysis)** | ⚠️ | ❌ (LLM manual check) | ❌ |
-| | Web Search | **✅ (BrowserTool)** | ❌ (Knowledge cutoff) | ✅ | ✅ |
-| **Interactive Exp** | Interactive REPL | **✅ (Phase 8)** | ✅ (Highly polished) | ✅ | ✅ |
-| | Slash Commands | **✅ (/model, /cost)** | ✅ (/bug, /review) | ✅ (/save) | ✅ |
-| | UI Aesthetics | ⚠️ (Base on Rich) | **✅ (Highly polished)** | ⚠️ | ⚠️ |
-| **Ecosystem** | MCP Protocol | 🔧 (Arch support) | ✅ (Native) | ⚠️ (Experimental) | ⚠️ |
-| | Multi-model Support | **✅ (GGUF/API Switch)** | ❌ (Claude only) | ✅ | ✅ |
-
----
-
 > **Design Goal: Make the Agent a reliable engineer, not a talkative chatbot.**
